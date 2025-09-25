@@ -12,6 +12,14 @@ async function shopGql(query, variables) {
 }
 
 export default async function handler(req, res) {
+    // CORS
+  res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   try {
     const m = req.method.toUpperCase();
