@@ -60,21 +60,29 @@ export default async function handler(req, res) {
       return res.json(data.data.metaobjectUpdate.metaobject);
     }
     if (m === 'DELETE') {
-      const handle = String(req.query.handle || '');
-      if (!handle) return res.status(400).json({ error:'Missing handle' });
-      const lookup = await shopGql(
-        `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id } }`,
-        { handle }
-      );
-      const id = lookup.data?.metaobjectByHandle?.id;
-      if (!id) return res.status(404).json({ error:'Not found' });
-      const d = await shopGql(
-        `mutation($id:ID!){ metaobjectDelete(id:$id){ deletedId userErrors{ field message } } }`,
-        { id }
-      );
-      const ue = d.data.metaobjectDelete.userErrors;
-      if (ue?.length) return res.status(400).json({ errors: ue });
-      return res.json({ deletedId: d.data.metaobjectDelete.deletedId });
+    const handle = String(req.query.handle || '');
+    if (!handle) return res.status(400).json({ error:'Missing handle' });
+    
+    // 🔧 添加调试日志
+    console.log('Attempting to delete handle:', handle);
+    
+    const lookup = await shopGql(
+      `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id } }`,
+      { handle }
+    );
+    console.log('Lookup result:', JSON.stringify(lookup, null, 2));
+    const id = lookup.data?.metaobjectByHandle?.id;
+    if (!id) {
+      console.log('Metaobject not found for handle:', handle);
+      return res.status(404).json({ error:'Not found' });
+    }
+    const d = await shopGql(
+      `mutation($id:ID!){ metaobjectDelete(id:$id){ deletedId userErrors{ field message } } }`,
+      { id }
+    );
+    const ue = d.data.metaobjectDelete.userErrors;
+    if (ue?.length) return res.status(400).json({ errors: ue });
+    return res.json({ deletedId: d.data.metaobjectDelete.deletedId });
     }
     return res.status(405).json({ error:'Method Not Allowed' });
   } catch (e) {
