@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       // 将 email 信息合并到 author 字段中
       const authorWithEmail = email ? `${author} (${email})` : author;
       
-      // 构建完整的字段数组
+      // 构建基本字段数组（只使用 Metaobject 中已定义的字段）
       const fields = [
         { key:'text', value:String(text) },
         { key:'author', value:String(authorWithEmail) },
@@ -88,28 +88,15 @@ export default async function handler(req, res) {
         { key:'invoice_url', value:fileUrl }
       ];
       
-      // 添加加工参数字段（如果Metaobject支持）
-      const additionalFields = [
-        { key:'quantity', value:String(quantity) },
-        { key:'unit', value:String(unit) },
-        { key:'material', value:String(material) },
-        { key:'finish', value:String(finish) },
-        { key:'precision', value:String(precision) },
-        { key:'tolerance', value:String(tolerance) },
-        { key:'roughness', value:String(roughness) },
-        { key:'hasThread', value:String(hasThread) },
-        { key:'hasAssembly', value:String(hasAssembly) },
-        { key:'scale', value:String(scale) },
-        { key:'note', value:String(note) }
-      ];
+      // 将加工参数信息合并到 author 字段中（因为 Metaobject 字段有限）
+      const paramInfo = `数量:${quantity}${unit} | 材料:${material} | 精度:${precision} | 公差:${tolerance} | 粗糙度:${roughness} | 螺纹:${hasThread} | 装配:${hasAssembly} | 缩放:${scale}% | 备注:${note}`;
+      const authorWithParams = `${authorWithEmail} | ${paramInfo}`;
       
-      // 尝试添加额外字段，如果失败则只使用基本字段
-      try {
-        fields.push(...additionalFields);
-        console.log('使用完整字段集:', fields.length, '个字段');
-      } catch (error) {
-        console.warn('添加额外字段失败，使用基本字段:', error);
-      }
+      // 更新 author 字段以包含参数信息
+      fields[1] = { key:'author', value:String(authorWithParams) };
+      
+      console.log('使用基本字段集:', fields.length, '个字段');
+      console.log('参数信息已合并到 author 字段');
       const mql = `mutation($fields:[MetaobjectFieldInput!]!){
         metaobjectCreate(metaobject:{type:"quote", fields:$fields}){
           metaobject{ id handle fields{ key value } } userErrors{ field message }
