@@ -13,12 +13,24 @@ export default async function handler(req, res) {
     return;
   }
 
- const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+  const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
   const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
 
   if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
+    console.error('Missing Shopify configuration:', {
+      SHOPIFY_STORE_DOMAIN: !!SHOPIFY_STORE_DOMAIN,
+      SHOPIFY_ACCESS_TOKEN: !!SHOPIFY_ACCESS_TOKEN,
+      SHOP: !!process.env.SHOP,
+      ADMIN_TOKEN: !!process.env.ADMIN_TOKEN
+    });
     return res.status(500).json({ error: 'Missing Shopify configuration' });
   }
+
+  console.log('Shopify configuration loaded:', {
+    domain: SHOPIFY_STORE_DOMAIN,
+    tokenLength: SHOPIFY_ACCESS_TOKEN ? SHOPIFY_ACCESS_TOKEN.length : 0,
+    tokenPrefix: SHOPIFY_ACCESS_TOKEN ? SHOPIFY_ACCESS_TOKEN.substring(0, 10) + '...' : 'none'
+  });
 
   const graphqlEndpoint = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/graphql.json`;
 
@@ -73,6 +85,8 @@ async function handleGet(req, res, graphqlEndpoint) {
   
   if (data.errors) {
     console.error('GraphQL errors:', data.errors);
+    console.error('Response status:', response.status);
+    console.error('Response headers:', Object.fromEntries(response.headers.entries()));
     return res.status(400).json({ errors: data.errors });
   }
 
