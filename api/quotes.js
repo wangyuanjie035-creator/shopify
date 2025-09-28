@@ -75,14 +75,15 @@ export default async function handler(req, res) {
         console.log('存储为文本数据');
       }
       
+      // 将 email 信息合并到 author 字段中
+      const authorWithEmail = email ? `${author} (${email})` : author;
+      
       const fields = [
         { key:'text', value:String(text) },
-        { key:'author', value:String(author) },
-        { key:'email', value:String(email) },
+        { key:'author', value:String(authorWithEmail) },
         { key:'status', value:String(status) },
         { key:'price', value:String(price) },
-        { key:'invoice_url', value:fileUrl },
-        { key:'file_data', value:fileData } // 新增字段存储文件数据
+        { key:'invoice_url', value:fileUrl }
       ];
       const mql = `mutation($fields:[MetaobjectFieldInput!]!){
         metaobjectCreate(metaobject:{type:"quote", fields:$fields}){
@@ -156,64 +157,52 @@ export default async function handler(req, res) {
       
       console.log('DELETE request received for handle:', handle);
       
-      // 查找要删除的 Metaobject - 使用更健壮的查询
-      let lookup;
+      // 使用标记删除而不是真正删除
       try {
-        lookup = await shopGql(
+        // 先尝试查找 Metaobject
+        const lookup = await shopGql(
           `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id handle fields{ key value } } }`,
           { handle }
         );
-        console.log('metaobjectByHandle lookup result:', JSON.stringify(lookup, null, 2));
-      } catch (error) {
-        console.error('metaobjectByHandle query failed:', error);
-        lookup = null;
-      }
-      
-      let id = lookup?.data?.metaobjectByHandle?.id;
-      
-      // 如果直接查询失败，尝试从所有记录中查找
-      if (!id) {
-        console.log('Direct lookup failed, trying fallback query');
-        try {
-          const fallbackQuery = `query { metaobjects(type:"quote", first:100){ nodes{ id handle fields{ key value } } } }`;
-          const fallbackResult = await shopGql(fallbackQuery, {});
-          console.log('Fallback query result:', JSON.stringify(fallbackResult, null, 2));
-          
-          const matchingNode = fallbackResult.data?.metaobjects?.nodes?.find(node => node.handle === handle);
-          if (matchingNode) {
-            id = matchingNode.id;
-            console.log('Found matching node via fallback:', matchingNode);
-          }
-        } catch (fallbackError) {
-          console.error('Fallback query failed:', fallbackError);
+        
+        console.log('Lookup result:', JSON.stringify(lookup, null, 2));
+        
+        if (!lookup.data?.metaobjectByHandle?.id) {
+          console.log('Metaobject not found for handle:', handle);
+          return res.status(404).json({ error:'Metaobject not found' });
         }
+        
+        const id = lookup.data.metaobjectByHandle.id;
+        console.log('Found metaobject id for deletion:', id);
+        
+        // 标记为已删除而不是真正删除
+        const updateResult = await shopGql(
+          `mutation($id:ID!){ 
+            metaobjectUpdate(id:$id, metaobject:{fields:[{key:"status", value:"Deleted"}]}){
+              metaobject{ id handle fields{ key value } } 
+              userErrors{ field message } 
+            } 
+          }`,
+          { id }
+        );
+        
+        console.log('Mark as deleted result:', JSON.stringify(updateResult, null, 2));
+        
+        const ue = updateResult.data?.metaobjectUpdate?.userErrors;
+        if (ue?.length) {
+          console.error('Update user errors:', ue);
+          return res.status(400).json({ errors: ue });
+        }
+        
+        return res.json({ 
+          success: true,
+          message: 'Metaobject marked as deleted successfully'
+        });
+        
+      } catch (error) {
+        console.error('Delete operation failed:', error);
+        return res.status(500).json({ error: error.message });
       }
-      
-      if (!id) {
-        console.log('Metaobject not found for handle:', handle);
-        return res.status(404).json({ error:'Metaobject not found' });
-      }
-      
-      console.log('Found metaobject id for deletion:', id);
-      
-      const d = await shopGql(
-        `mutation($id:ID!){ metaobjectDelete(id:$id){ deletedId userErrors{ field message } } }`,
-        { id }
-      );
-      
-      console.log('Delete mutation result:', JSON.stringify(d, null, 2));
-      
-      const ue = d.data?.metaobjectDelete?.userErrors;
-      if (ue?.length) {
-        console.error('Delete user errors:', ue);
-        return res.status(400).json({ errors: ue });
-      }
-      
-      return res.json({ 
-        success: true,
-        deletedId: d.data.metaobjectDelete.deletedId,
-        message: 'Metaobject deleted successfully'
-      });
     }
     return res.status(405).json({ error:'Method Not Allowed' });
   } catch (e) {
