@@ -49,25 +49,36 @@ export default async function handler(req, res) {
     if (m === 'PATCH' || m === 'PUT') {
     const handle = String(req.query.handle || '');
     if (!handle) return res.status(400).json({ error:'Missing handle' });
+    // 🔧 修复：先通过 handle 查找 id
+    console.log('PATCH request received for handle:', handle);
+    const lookup = await shopGql(
+      `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id } }`,
+      { handle }
+    );
+    console.log('Lookup result:', JSON.stringify(lookup, null, 2));
+    if (!lookup.data?.metaobjectByHandle?.id) {
+      console.error('Metaobject not found for handle:', handle);
+      return res.status(404).json({ error:'Metaobject not found' });
+    }
+    const id = lookup.data.metaobjectByHandle.id;
+    console.log('Found metaobject id:', id);
     const fields = Object.entries(req.body || {}).map(([k,v]) => ({ key:k, value:String(v ?? '') }));
-    const mql = `mutation($handle:String!, $fields:[MetaobjectFieldInput!]!){
-      metaobjectUpdate(handle:$handle, metaobject:{fields:$fields}){
+    console.log('Fields to update:', fields);
+    // 🔧 修复：使用 id 而不是 handle
+    const mql = `mutation($id:ID!, $fields:[MetaobjectFieldInput!]!){
+      metaobjectUpdate(id:$id, metaobject:{fields:$fields}){
         metaobject{ id handle fields{ key value } } userErrors{ field message }
       }}`;
-    // 🔧 添加调试日志
-    console.log('PATCH request received for handle:', handle);
-    console.log('Fields to update:', fields);
     console.log('GraphQL Mutation Query:', mql);
-    console.log('GraphQL Mutation Variables:', { handle, fields });
-    const data = await shopGql(mql, { handle, fields });
-    // 🔧 添加调试日志
+    console.log('GraphQL Mutation Variables:', { id, fields });
+    const data = await shopGql(mql, { id, fields });
     console.log('Shopify GraphQL Response (data):', JSON.stringify(data, null, 2));
-    // 🔧 检查顶层错误
+    // 检查顶层错误
     if (data.errors) {
       console.error('Shopify GraphQL top-level errors:', data.errors);
       return res.status(500).json({ errors: data.errors, message: 'Shopify GraphQL top-level errors' });
     }
-    // 🔧 检查 metaobjectUpdate 是否存在
+    // 检查 metaobjectUpdate 是否存在
     if (!data.data || !data.data.metaobjectUpdate) {
       console.error('Shopify GraphQL response missing data.data.metaobjectUpdate:', data);
       return res.status(500).json({ error: 'Unexpected Shopify GraphQL response structure', response: data });
@@ -82,10 +93,8 @@ export default async function handler(req, res) {
     if (m === 'DELETE') {
     const handle = String(req.query.handle || '');
     if (!handle) return res.status(400).json({ error:'Missing handle' });
-    
     // 🔧 添加调试日志
     console.log('Attempting to delete handle:', handle);
-    
     const lookup = await shopGql(
       `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id } }`,
       { handle }
