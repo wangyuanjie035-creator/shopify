@@ -55,25 +55,17 @@ export default async function handler(req, res) {
       
       console.log('POST request data:', { text, author, status, price, invoice_url, email });
       
-      // 处理文件URL - 支持 data: URI
-      let fileUrl = String(invoice_url || '');
-      let fileData = '';
-      
-      if (fileUrl.startsWith('data:')) {
-        // data: URI 存储为文本字段
-        fileData = fileUrl.substring(0, 2000); // 限制长度
-        fileUrl = 'data:uri'; // 占位符
-        console.log('检测到 data: URI，存储为文本字段');
-      } else if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-        // 标准URL
-        fileData = 'http:url';
-        console.log('检测到标准 URL');
-      } else if (fileUrl) {
-        // 其他情况
-        fileData = fileUrl;
-        fileUrl = 'text:data';
-        console.log('存储为文本数据');
-      }
+          // 处理文件URL - 支持 data: URI
+          let fileUrl = String(invoice_url || '');
+          
+          // 确保 URL 符合 Shopify 要求
+          if (!fileUrl || fileUrl === 'data:uri' || fileUrl === 'text:data') {
+            fileUrl = 'https://placeholder.com/file'; // 使用有效的占位符URL
+            console.log('使用占位符URL:', fileUrl);
+          } else if (!fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
+            fileUrl = 'https://placeholder.com/file'; // 强制使用有效URL
+            console.log('非标准URL，转换为占位符:', fileUrl);
+          }
       
       // 将 email 信息合并到 author 字段中
       const authorWithEmail = email ? `${author} (${email})` : author;
@@ -232,15 +224,31 @@ export default async function handler(req, res) {
         
         console.log('Mark as deleted result:', JSON.stringify(updateResult, null, 2));
         
+        // 检查顶层错误
+        if (updateResult.errors) {
+          console.error('GraphQL errors:', updateResult.errors);
+          return res.status(500).json({ errors: updateResult.errors });
+        }
+        
         const ue = updateResult.data?.metaobjectUpdate?.userErrors;
         if (ue?.length) {
           console.error('Update user errors:', ue);
           return res.status(400).json({ errors: ue });
         }
         
+        // 验证更新是否成功
+        const updatedMetaobject = updateResult.data?.metaobjectUpdate?.metaobject;
+        if (!updatedMetaobject) {
+          console.error('Update failed: no metaobject returned');
+          return res.status(500).json({ error: 'Update failed' });
+        }
+        
+        console.log('Successfully marked as deleted:', updatedMetaobject.handle);
+        
         return res.json({ 
           success: true,
-          message: 'Metaobject marked as deleted successfully'
+          message: 'Metaobject marked as deleted successfully',
+          metaobject: updatedMetaobject
         });
         
       } catch (error) {
