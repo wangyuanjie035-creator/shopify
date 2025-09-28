@@ -222,6 +222,9 @@ export default async function handler(req, res) {
           { id }
         );
         
+        console.log('GraphQL Update Query:', `mutation($id:ID!){ metaobjectUpdate(id:$id, metaobject:{fields:[{key:"status", value:"Deleted"}]}){ metaobject{ id handle fields{ key value } } userErrors{ field message } } }`);
+        console.log('GraphQL Update Variables:', { id });
+        
         console.log('Mark as deleted result:', JSON.stringify(updateResult, null, 2));
         
         // 检查顶层错误
@@ -245,10 +248,31 @@ export default async function handler(req, res) {
         
         console.log('Successfully marked as deleted:', updatedMetaobject.handle);
         
+        // 验证更新是否真正成功
+        const verifyResult = await shopGql(
+          `query($id:ID!){ metaobject(id:$id){ id handle fields{ key value } } }`,
+          { id }
+        );
+        
+        console.log('Verification query result:', JSON.stringify(verifyResult, null, 2));
+        
+        const verifiedStatus = verifyResult.data?.metaobject?.fields?.find(f => f.key === 'status')?.value;
+        console.log('Verified status:', verifiedStatus);
+        
+        if (verifiedStatus !== 'Deleted') {
+          console.error('Status update verification failed. Expected: Deleted, Got:', verifiedStatus);
+          return res.status(500).json({ 
+            error: 'Status update verification failed',
+            expected: 'Deleted',
+            actual: verifiedStatus
+          });
+        }
+        
         return res.json({ 
           success: true,
           message: 'Metaobject marked as deleted successfully',
-          metaobject: updatedMetaobject
+          metaobject: updatedMetaobject,
+          verified: true
         });
         
       } catch (error) {
