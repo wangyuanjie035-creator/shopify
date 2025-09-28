@@ -98,22 +98,43 @@ export default async function handler(req, res) {
       const handle = String(req.query.handle || '');
       if (!handle) return res.status(400).json({ error:'Missing handle' });
       
-      // 🔧 修复：先通过 handle 查找 id
+      // 🔧 修复：先通过 handle 查找 id，支持部分匹配
       console.log('PATCH request received for handle:', handle);
       
-      const lookup = await shopGql(
+      let lookup = await shopGql(
         `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id } }`,
         { handle }
       );
       
-      console.log('Lookup result:', JSON.stringify(lookup, null, 2));
+      console.log('Direct lookup result:', JSON.stringify(lookup, null, 2));
       
-      if (!lookup.data?.metaobjectByHandle?.id) {
+      let id = lookup.data?.metaobjectByHandle?.id;
+      
+      // 如果直接查找失败，尝试部分匹配
+      if (!id) {
+        console.log('Direct lookup failed, trying partial match for:', handle);
+        
+        const allRecords = await shopGql(
+          `query { metaobjects(type:"quote", first:100){ nodes{ id handle fields{ key value } } } }`,
+          {}
+        );
+        
+        // 查找包含 handle 的记录
+        const matchingRecord = allRecords.data?.metaobjects?.nodes?.find(record => 
+          record.handle.includes(handle) || handle.includes(record.handle)
+        );
+        
+        if (matchingRecord) {
+          id = matchingRecord.id;
+          console.log('Found matching record via partial match:', matchingRecord);
+        }
+      }
+      
+      if (!id) {
         console.error('Metaobject not found for handle:', handle);
         return res.status(404).json({ error:'Metaobject not found' });
       }
       
-      const id = lookup.data.metaobjectByHandle.id;
       console.log('Found metaobject id:', id);
       
       const fields = Object.entries(req.body || {}).map(([k,v]) => ({ key:k, value:String(v ?? '') }));
@@ -159,20 +180,43 @@ export default async function handler(req, res) {
       
       // 使用标记删除而不是真正删除
       try {
-        // 先尝试查找 Metaobject
-        const lookup = await shopGql(
+        // 先尝试直接查找
+        let lookup = await shopGql(
           `query($handle:String!){ metaobjectByHandle(handle:$handle, type:"quote"){ id handle fields{ key value } } }`,
           { handle }
         );
         
-        console.log('Lookup result:', JSON.stringify(lookup, null, 2));
+        console.log('Direct lookup result:', JSON.stringify(lookup, null, 2));
         
-        if (!lookup.data?.metaobjectByHandle?.id) {
+        let id = lookup.data?.metaobjectByHandle?.id;
+        
+        // 如果直接查找失败，尝试部分匹配
+        if (!id) {
+          console.log('Direct lookup failed, trying partial match for:', handle);
+          
+          const allRecords = await shopGql(
+            `query { metaobjects(type:"quote", first:100){ nodes{ id handle fields{ key value } } } }`,
+            {}
+          );
+          
+          console.log('All records:', JSON.stringify(allRecords, null, 2));
+          
+          // 查找包含 handle 的记录
+          const matchingRecord = allRecords.data?.metaobjects?.nodes?.find(record => 
+            record.handle.includes(handle) || handle.includes(record.handle)
+          );
+          
+          if (matchingRecord) {
+            id = matchingRecord.id;
+            console.log('Found matching record via partial match:', matchingRecord);
+          }
+        }
+        
+        if (!id) {
           console.log('Metaobject not found for handle:', handle);
           return res.status(404).json({ error:'Metaobject not found' });
         }
         
-        const id = lookup.data.metaobjectByHandle.id;
         console.log('Found metaobject id for deletion:', id);
         
         // 标记为已删除而不是真正删除
