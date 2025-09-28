@@ -168,7 +168,8 @@ export default async function handler(req, res) {
       const handle = String(req.query.handle || '');
       if (!handle) return res.status(400).json({ error:'Missing handle' });
       
-      console.log('DELETE request received for handle:', handle);
+        console.log('DELETE request received for handle:', handle);
+        console.log('Looking for exact match first, then partial match');
       
       // 使用标记删除而不是真正删除
       try {
@@ -191,17 +192,27 @@ export default async function handler(req, res) {
             {}
           );
           
-          console.log('All records:', JSON.stringify(allRecords, null, 2));
-          
-          // 查找包含 handle 的记录
-          const matchingRecord = allRecords.data?.metaobjects?.nodes?.find(record => 
-            record.handle.includes(handle) || handle.includes(record.handle)
-          );
-          
-          if (matchingRecord) {
-            id = matchingRecord.id;
-            console.log('Found matching record via partial match:', matchingRecord);
-          }
+              console.log('All records:', JSON.stringify(allRecords, null, 2));
+              
+              // 查找包含 handle 的记录 - 优先精确匹配
+              let matchingRecord = allRecords.data?.metaobjects?.nodes?.find(record => 
+                record.handle === handle
+              );
+              
+              // 如果没有精确匹配，尝试部分匹配
+              if (!matchingRecord) {
+                matchingRecord = allRecords.data?.metaobjects?.nodes?.find(record => 
+                  record.handle.includes(handle) || handle.includes(record.handle)
+                );
+              }
+              
+              if (matchingRecord) {
+                id = matchingRecord.id;
+                console.log('Found matching record via partial match:', matchingRecord);
+                console.log('Matched handle:', matchingRecord.handle, 'with input:', handle);
+              } else {
+                console.log('No matching record found for handle:', handle);
+              }
         }
         
         if (!id) {
