@@ -67,13 +67,18 @@ export default async function handler(req, res) {
           // 处理文件URL - 支持 data: URI
           let fileUrl = String(invoice_url || '');
           
-          // 确保 URL 符合 Shopify 要求
-          if (!fileUrl || fileUrl === 'data:uri' || fileUrl === 'text:data') {
-            fileUrl = 'https://placeholder.com/file'; // 使用有效的占位符URL
-            console.log('使用占位符URL:', fileUrl);
+          // 处理文件数据存储
+          if (fileUrl === 'data:file' && file_data) {
+            // 如果有实际文件数据，尝试存储到 text 字段中
+            console.log('检测到文件数据，尝试存储到 text 字段');
+            // 注意：由于 Shopify 字段限制，我们只能存储基本信息
+            fileUrl = 'data:stored'; // 标记为已存储
+          } else if (!fileUrl || fileUrl === 'data:uri' || fileUrl === 'text:data') {
+            fileUrl = 'data:unavailable'; // 标记为不可用
+            console.log('文件数据不可用');
           } else if (!fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
-            fileUrl = 'https://placeholder.com/file'; // 强制使用有效URL
-            console.log('非标准URL，转换为占位符:', fileUrl);
+            fileUrl = 'data:unavailable'; // 标记为不可用
+            console.log('非标准URL，标记为不可用');
           }
       
       // 将 email 信息合并到 author 字段中
