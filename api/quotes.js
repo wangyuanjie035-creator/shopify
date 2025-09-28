@@ -51,9 +51,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ records: activeRecords });
     }
     if (m === 'POST') {
-      const { text='', author='', status='Pending', price='', invoice_url='', email='' } = req.body || {};
+      const { 
+        text='', author='', status='Pending', price='', invoice_url='', email='',
+        file_data='', quantity=1, unit='件', material='未指定', finish='未指定',
+        precision='未指定', tolerance='未指定', roughness='未指定',
+        hasThread='否', hasAssembly='否', scale=100, note='无'
+      } = req.body || {};
       
-      console.log('POST request data:', { text, author, status, price, invoice_url, email });
+      console.log('POST request data:', { 
+        text, author, status, price, invoice_url, email,
+        quantity, unit, material, finish, precision, tolerance, roughness,
+        hasThread, hasAssembly, scale, note
+      });
       
           // 处理文件URL - 支持 data: URI
           let fileUrl = String(invoice_url || '');
@@ -70,6 +79,7 @@ export default async function handler(req, res) {
       // 将 email 信息合并到 author 字段中
       const authorWithEmail = email ? `${author} (${email})` : author;
       
+      // 构建完整的字段数组
       const fields = [
         { key:'text', value:String(text) },
         { key:'author', value:String(authorWithEmail) },
@@ -77,6 +87,29 @@ export default async function handler(req, res) {
         { key:'price', value:String(price) },
         { key:'invoice_url', value:fileUrl }
       ];
+      
+      // 添加加工参数字段（如果Metaobject支持）
+      const additionalFields = [
+        { key:'quantity', value:String(quantity) },
+        { key:'unit', value:String(unit) },
+        { key:'material', value:String(material) },
+        { key:'finish', value:String(finish) },
+        { key:'precision', value:String(precision) },
+        { key:'tolerance', value:String(tolerance) },
+        { key:'roughness', value:String(roughness) },
+        { key:'hasThread', value:String(hasThread) },
+        { key:'hasAssembly', value:String(hasAssembly) },
+        { key:'scale', value:String(scale) },
+        { key:'note', value:String(note) }
+      ];
+      
+      // 尝试添加额外字段，如果失败则只使用基本字段
+      try {
+        fields.push(...additionalFields);
+        console.log('使用完整字段集:', fields.length, '个字段');
+      } catch (error) {
+        console.warn('添加额外字段失败，使用基本字段:', error);
+      }
       const mql = `mutation($fields:[MetaobjectFieldInput!]!){
         metaobjectCreate(metaobject:{type:"quote", fields:$fields}){
           metaobject{ id handle fields{ key value } } userErrors{ field message }
