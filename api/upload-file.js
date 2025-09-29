@@ -51,15 +51,32 @@ export default async function handler(req, res) {
     // 生成唯一的文件ID
     const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // 将文件数据存储到 Shopify Metaobject
+    // 规范化与截断文件数据，避免超过 Shopify 字段 65536 字符限制
+    const MAX_FIELD_CHARS = 65000; // 留一点余量
+    let base64Data = fileData || '';
+    // 若包含 data: 前缀，去掉头部
+    const commaIdx = base64Data.indexOf(',');
+    if (base64Data.startsWith('data:') && commaIdx !== -1) {
+      base64Data = base64Data.substring(commaIdx + 1);
+    }
+    const originalSize = base64Data.length;
+    let storedData = base64Data;
+    let isTruncated = false;
+    if (storedData.length > MAX_FIELD_CHARS) {
+      storedData = storedData.slice(0, MAX_FIELD_CHARS);
+      isTruncated = true;
+    }
+
+    // 将文件数据存储到 Shopify Metaobject（注意：仅适合小文件/示例数据）
     const fields = [
       { key: 'file_id', value: fileId },
       { key: 'file_name', value: fileName },
       { key: 'file_type', value: fileType || 'application/octet-stream' },
-      { key: 'file_data', value: fileData }, // 存储 base64 数据
+      { key: 'file_data', value: storedData }, // 存储截断后的 base64 数据
       { key: 'order_id', value: orderId || '' }, // 关联的订单ID
       { key: 'upload_time', value: new Date().toISOString() },
-      { key: 'file_size', value: String(fileData.length) }
+      { key: 'file_size', value: String(originalSize) },
+      { key: 'is_truncated', value: isTruncated ? 'true' : 'false' }
     ];
 
     console.log('存储文件到 Metaobject:', { fileId, fileName, fileType, size: fileData.length });
@@ -109,7 +126,7 @@ export default async function handler(req, res) {
       fileName: fileName,
       fileUrl: fileUrl,
       metaobjectId: fileRecord.id,
-      message: '文件上传成功'
+      message: isTruncated ? '文件上传成功（已截断存储，仅用于演示）' : '文件上传成功'
     });
 
   } catch (error) {
