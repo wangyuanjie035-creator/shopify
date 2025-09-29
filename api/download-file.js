@@ -36,8 +36,19 @@ export default async function handler(req, res) {
       }
     `;
 
-    const result = await shopGql(query, { type: FILE_METAOBJECT_TYPE, first: 100 });
-    const nodes = result?.data?.metaobjects?.nodes || [];
+    let nodes = [];
+    try {
+      const result = await shopGql(query, { type: FILE_METAOBJECT_TYPE, first: 100 });
+      if (result?.errors) {
+        console.error('GraphQL errors:', result.errors);
+      }
+      nodes = result?.data?.metaobjects?.nodes || [];
+    } catch (gqlErr) {
+      console.error('GraphQL request failed:', gqlErr);
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件服务暂不可用</title><style>body{font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:40px auto;background:#f7f7f7} .card{background:#fff;padding:28px 32px;border-radius:10px;box-shadow:0 3px 16px rgba(0,0,0,.08)} h1{color:#e67e22;font-size:22px;margin:0 0 12px} p{color:#555;line-height:1.7;margin:8px 0} code{background:#f2f2f2;padding:4px 6px;border-radius:4px}</style></head><body><div class="card"><h1>⚠️ 文件服务暂不可用</h1><p>文件ID：<code>${id}</code></p><p>后台文件存储服务暂时不可用，请稍后重试，或联系客户重新提供文件。</p></div></body></html>`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(503).send(html);
+    }
     const fileRecord = nodes.find(node => {
       const f = node.fields.find(x => x.key === 'file_id');
       return f && f.value === id;
