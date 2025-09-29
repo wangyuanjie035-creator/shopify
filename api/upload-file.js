@@ -43,20 +43,7 @@ export default async function handler(req, res) {
 
     console.log('存储文件到 Metaobject:', { fileId, fileName, fileType, size: fileData.length });
 
-    // 临时方案：直接返回占位符URL，避免Metaobject创建问题
-    console.log('使用临时方案：返回占位符URL');
-    const fileUrl = `https://shopify-13s4.vercel.app/api/download-file?id=${fileId}`;
-    
-    return res.status(200).json({
-      success: true,
-      fileId: fileId,
-      fileName: fileName,
-      fileUrl: fileUrl,
-      message: '文件上传成功（临时方案）'
-    });
-
-    // 注释掉Metaobject创建代码，使用临时方案
-    /*
+    // 创建文件记录
     const createMutation = `
       mutation($fields: [MetaobjectFieldInput!]!) {
         metaobjectCreate(metaobject: {type: "${FILE_METAOBJECT_TYPE}", fields: $fields}) {
@@ -103,7 +90,6 @@ export default async function handler(req, res) {
       metaobjectId: fileRecord.id,
       message: '文件上传成功'
     });
-    */
 
   } catch (error) {
     console.error('文件上传错误:', error);
