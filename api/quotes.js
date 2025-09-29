@@ -52,33 +52,23 @@ export default async function handler(req, res) {
     }
     if (m === 'POST') {
       const { 
-        text='', author='', status='Pending', price='', invoice_url='', email='',
-        file_data='', quantity=1, unit='件', material='未指定', finish='未指定',
-        precision='未指定', tolerance='未指定', roughness='未指定',
-        hasThread='否', hasAssembly='否', scale=100, note='无'
+        text='', author='', status='Pending', price='', invoice_url='', email=''
       } = req.body || {};
       
       console.log('POST request data:', { 
-        text, author, status, price, invoice_url, email,
-        quantity, unit, material, finish, precision, tolerance, roughness,
-        hasThread, hasAssembly, scale, note
+        text, author, status, price, invoice_url, email
       });
       
           // 处理文件URL - 支持 data: URI
           let fileUrl = String(invoice_url || '');
           
-          // 处理文件数据存储
-          if (fileUrl === 'data:file' && file_data) {
-            // 如果有实际文件数据，尝试存储到 text 字段中
-            console.log('检测到文件数据，尝试存储到 text 字段');
-            // 注意：由于 Shopify 字段限制，我们只能存储基本信息
-            fileUrl = 'data:stored'; // 标记为已存储
-          } else if (!fileUrl || fileUrl === 'data:uri' || fileUrl === 'text:data') {
-            fileUrl = 'data:unavailable'; // 标记为不可用
-            console.log('文件数据不可用');
+          // 处理文件URL - 确保符合 Shopify URL 字段要求
+          if (!fileUrl || fileUrl === 'data:uri' || fileUrl === 'text:data' || fileUrl === 'data:file') {
+            fileUrl = 'https://placeholder.com/file'; // 使用占位符URL
+            console.log('使用占位符URL');
           } else if (!fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
-            fileUrl = 'data:unavailable'; // 标记为不可用
-            console.log('非标准URL，标记为不可用');
+            fileUrl = 'https://placeholder.com/file'; // 使用占位符URL
+            console.log('非标准URL，使用占位符');
           }
       
       // 将 email 信息合并到 author 字段中
@@ -93,15 +83,11 @@ export default async function handler(req, res) {
         { key:'invoice_url', value:fileUrl }
       ];
       
-      // 将加工参数信息合并到 author 字段中（因为 Metaobject 字段有限）
-      const paramInfo = `数量:${quantity}${unit} | 材料:${material} | 精度:${precision} | 公差:${tolerance} | 粗糙度:${roughness} | 螺纹:${hasThread} | 装配:${hasAssembly} | 缩放:${scale}% | 备注:${note}`;
-      const authorWithParams = `${authorWithEmail} | ${paramInfo}`;
-      
-      // 更新 author 字段以包含参数信息
-      fields[1] = { key:'author', value:String(authorWithParams) };
+      // 由于 Metaobject 字段限制，只使用基本字段
+      // 参数信息将在前端处理时从购物车获取
       
       console.log('使用基本字段集:', fields.length, '个字段');
-      console.log('参数信息已合并到 author 字段');
+      console.log('参数信息将从购物车获取');
       const mql = `mutation($fields:[MetaobjectFieldInput!]!){
         metaobjectCreate(metaobject:{type:"quote", fields:$fields}){
           metaobject{ id handle fields{ key value } } userErrors{ field message }
