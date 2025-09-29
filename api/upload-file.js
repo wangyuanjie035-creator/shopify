@@ -75,8 +75,7 @@ export default async function handler(req, res) {
       { key: 'file_data', value: storedData }, // 存储截断后的 base64 数据
       { key: 'order_id', value: orderId || '' }, // 关联的订单ID
       { key: 'upload_time', value: new Date().toISOString() },
-      { key: 'file_size', value: String(originalSize) },
-      { key: 'is_truncated', value: isTruncated ? 'true' : 'false' }
+      { key: 'file_size', value: String(originalSize) }
     ];
 
     console.log('存储文件到 Metaobject:', { fileId, fileName, fileType, size: fileData.length });
