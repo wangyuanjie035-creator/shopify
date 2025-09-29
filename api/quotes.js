@@ -270,6 +270,25 @@ export default async function handler(req, res) {
         
         console.log('Successfully marked as deleted:', updatedMetaobject.handle);
         
+        // 清理关联的文件
+        try {
+          console.log('开始清理关联文件...');
+          const cleanupResponse = await fetch(`${process.env.VERCEL_URL || 'https://shopify-13s4.vercel.app'}/api/cleanup-files`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: handle })
+          });
+          
+          if (cleanupResponse.ok) {
+            const cleanupResult = await cleanupResponse.json();
+            console.log('文件清理结果:', cleanupResult);
+          } else {
+            console.warn('文件清理失败:', cleanupResponse.status);
+          }
+        } catch (cleanupError) {
+          console.warn('文件清理异常:', cleanupError);
+        }
+        
         // 验证更新是否真正成功
         const verifyResult = await shopGql(
           `query($id:ID!){ metaobject(id:$id){ id handle fields{ key value } } }`,
