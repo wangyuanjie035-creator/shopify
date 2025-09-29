@@ -1,11 +1,6 @@
 // Vercel 文件下载 API
 // 用于下载已上传的文件
 
-import { shopGql } from './quotes-restored.js';
-
-// 文件存储的 Metaobject 类型
-const FILE_METAOBJECT_TYPE = 'uploaded_file';
-
 export default async function handler(req, res) {
   // 设置 CORS 头
   res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
