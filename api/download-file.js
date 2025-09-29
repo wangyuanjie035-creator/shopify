@@ -1,7 +1,29 @@
 // Vercel 文件下载 API
 // 用于下载已上传的文件
-import { shopGql } from './quotes-restored.js';
 const FILE_METAOBJECT_TYPE = 'uploaded_file';
+
+// 本地实现 shopGql，避免跨路由导入在 Vercel 中丢失
+async function shopGql(query, variables) {
+  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+
+  if (!storeDomain || !accessToken) {
+    return { errors: [{ message: 'Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ACCESS_TOKEN' }] };
+  }
+
+  const endpoint = `https://${storeDomain}/admin/api/2024-07/graphql.json`;
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': accessToken,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const json = await resp.json();
+  return json;
+}
 
 export default async function handler(req, res) {
   // 设置 CORS 头
