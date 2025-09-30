@@ -40,13 +40,34 @@ export default async function handler(req, res) {
       const q = `query { metaobjects(type:"quote", first:50){ nodes{ id handle fields{ key value } } } }`;
       const data = await shopGql(q, {});
       
+      console.log('GraphQL raw response:', JSON.stringify(data, null, 2));
+      
+      if (!data.data || !data.data.metaobjects) {
+        console.error('Invalid GraphQL response structure:', data);
+        return res.status(500).json({ error: 'Invalid response from Shopify API', details: data });
+      }
+      
+      const allNodes = data.data.metaobjects.nodes || [];
+      console.log(`Total metaobjects found: ${allNodes.length}`);
+      
+      // 记录所有记录的详细信息
+      allNodes.forEach((record, index) => {
+        console.log(`Record ${index + 1}:`, {
+          id: record.id,
+          handle: record.handle,
+          fields: record.fields
+        });
+      });
+      
       // 过滤掉已删除的记录
-      const activeRecords = data.data.metaobjects.nodes.filter(record => {
+      const activeRecords = allNodes.filter(record => {
         const statusField = record.fields.find(f => f.key === 'status');
+        const status = statusField ? statusField.value : 'Unknown';
+        console.log(`Record ${record.handle} status: ${status}`);
         return statusField && statusField.value !== 'Deleted';
       });
       
-      console.log(`Found ${data.data.metaobjects.nodes.length} total records, ${activeRecords.length} active records`);
+      console.log(`Found ${allNodes.length} total records, ${activeRecords.length} active records`);
       
       return res.status(200).json({ records: activeRecords });
     }
@@ -327,4 +348,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: e?.message || 'Server Error' });
   }
 }
-
