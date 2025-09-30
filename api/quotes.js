@@ -59,17 +59,17 @@ export default async function handler(req, res) {
         });
       });
       
-      // 过滤掉已删除的记录
-      const activeRecords = allNodes.filter(record => {
+      // 暂时返回所有记录，不过滤
+      console.log(`Found ${allNodes.length} total records`);
+      
+      // 记录每条记录的状态
+      allNodes.forEach(record => {
         const statusField = record.fields.find(f => f.key === 'status');
         const status = statusField ? statusField.value : 'Unknown';
         console.log(`Record ${record.handle} status: ${status}`);
-        return statusField && statusField.value !== 'Deleted';
       });
       
-      console.log(`Found ${allNodes.length} total records, ${activeRecords.length} active records`);
-      
-      return res.status(200).json({ records: activeRecords });
+      return res.status(200).json({ records: allNodes, total: allNodes.length });
     }
     if (m === 'POST') {
       const { 
