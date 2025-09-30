@@ -101,18 +101,38 @@ export default async function handler(req, res) {
     console.log('获取到 staged upload 目标:', target.url);
 
     // 2) 将文件 POST 到 target.url（multipart/form-data）
-    // 在 Vercel/Node.js 18+ 环境中使用 form-data 包
-    const FormDataNode = (await import('form-data')).default;
-    const form = new FormDataNode();
+    // 手动构建 multipart/form-data
+    const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36)}`;
+    const parts = [];
+    
+    // 添加参数字段
     for (const p of target.parameters) {
-      form.append(p.name, p.value);
+      parts.push(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="${p.name}"\r\n\r\n` +
+        `${p.value}\r\n`
+      );
     }
-    form.append('file', fileBuffer, { filename: fileName, contentType: mimeType });
+    
+    // 添加文件字段
+    parts.push(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
+      `Content-Type: ${mimeType}\r\n\r\n`
+    );
+    
+    // 组合所有部分
+    const textParts = Buffer.from(parts.join(''), 'utf8');
+    const endBoundary = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+    const body = Buffer.concat([textParts, fileBuffer, endBoundary]);
     
     const uploadResp = await fetch(target.url, { 
       method: 'POST', 
-      body: form,
-      headers: form.getHeaders()
+      body: body,
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length.toString()
+      }
     });
     
     if (!uploadResp.ok) {
