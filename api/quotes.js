@@ -40,48 +40,22 @@ export default async function handler(req, res) {
       const q = `query { metaobjects(type:"quote", first:50){ nodes{ id handle fields{ key value } } } }`;
       const data = await shopGql(q, {});
       
-      console.log('GraphQL raw response:', JSON.stringify(data, null, 2));
-      
-      if (!data.data || !data.data.metaobjects) {
-        console.error('Invalid GraphQL response structure:', data);
-        return res.status(500).json({ error: 'Invalid response from Shopify API', details: data });
-      }
-      
-      const allNodes = data.data.metaobjects.nodes || [];
-      console.log(`Total metaobjects found: ${allNodes.length}`);
-      
-      // 记录所有记录的详细信息
-      allNodes.forEach((record, index) => {
-        console.log(`Record ${index + 1}:`, {
-          id: record.id,
-          handle: record.handle,
-          fields: record.fields
-        });
-      });
-      
-      // 只过滤掉状态为 Deleted 的记录
-      const activeRecords = allNodes.filter(record => {
+      // 过滤掉已删除的记录
+      const activeRecords = data.data.metaobjects.nodes.filter(record => {
         const statusField = record.fields.find(f => f.key === 'status');
-        const status = statusField ? statusField.value : 'Unknown';
-        console.log(`Record ${record.handle} status: ${status}`);
-        // 只过滤 Deleted，保留 Pending 和其他状态
-        return !statusField || statusField.value !== 'Deleted';
+        return statusField && statusField.value !== 'Deleted';
       });
       
-      console.log(`Found ${allNodes.length} total records, ${activeRecords.length} active records`);
-      
-      return res.status(200).json({ records: activeRecords, total: activeRecords.length });
+      return res.status(200).json({ records: activeRecords });
     }
     if (m === 'POST') {
       const { 
         text='', author='', status='Pending', price='', invoice_url='', email=''
       } = req.body || {};
       
-      console.log('POST request received');
       console.log('POST request data:', { 
         text, author, status, price, invoice_url, email
       });
-      console.log('Request body:', JSON.stringify(req.body, null, 2));
       
           // 处理文件URL - 支持 data: URI
           let fileUrl = String(invoice_url || '');
@@ -116,21 +90,10 @@ export default async function handler(req, res) {
         metaobjectCreate(metaobject:{type:"quote", fields:$fields}){
           metaobject{ id handle fields{ key value } } userErrors{ field message }
         }}`;
-      
-      console.log('Sending to Shopify:', JSON.stringify({ fields }, null, 2));
       const data = await shopGql(mql, { fields });
-      console.log('Shopify response:', JSON.stringify(data, null, 2));
-      
       const ue = data.data.metaobjectCreate.userErrors;
-      if (ue?.length) {
-        console.error('Metaobject creation errors:', ue);
-        return res.status(400).json({ errors: ue });
-      }
-      
-      const createdMetaobject = data.data.metaobjectCreate.metaobject;
-      console.log('Successfully created metaobject:', createdMetaobject);
-      
-      return res.status(201).json(createdMetaobject);
+      if (ue?.length) return res.status(400).json({ errors: ue });
+      return res.status(201).json(data.data.metaobjectCreate.metaobject);
     }
     if (m === 'PATCH' || m === 'PUT') {
       const handle = String(req.query.handle || '');
