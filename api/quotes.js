@@ -47,11 +47,14 @@ export default async function handler(req, res) {
     }
     if (m === 'POST') {
       const { 
-        text='', author='', status='Pending', price='', invoice_url='', email=''
+        text='', author='', status='', price='', invoice_url='', email=''
       } = req.body || {};
       
+      // 强制使用 Pending 状态，忽略客户端传来的值
+      const finalStatus = 'Pending';
+      
       console.log('POST request data:', { 
-        text, author, status, price, invoice_url, email
+        text, author, status: finalStatus, price, invoice_url, email
       });
       
           // 处理文件URL - 支持 data: URI
@@ -73,7 +76,7 @@ export default async function handler(req, res) {
       const fields = [
         { key:'text', value:String(text) },
         { key:'author', value:String(authorWithEmail) },
-        { key:'status', value:String(status) },
+        { key:'status', value:finalStatus },  // 使用强制的 Pending 状态
         { key:'price', value:String(price) },
         { key:'invoice_url', value:fileUrl }
       ];
