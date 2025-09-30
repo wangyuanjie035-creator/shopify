@@ -180,7 +180,7 @@ export default async function handler(req, res) {
         console.log('DELETE request received for handle:', handle);
         console.log('Looking for exact match first, then partial match');
       
-      // 使用标记删除而不是真正删除
+      // 真正删除记录
       try {
         // 先尝试直接查找
         let lookup = await shopGql(
@@ -231,42 +231,39 @@ export default async function handler(req, res) {
         
         console.log('Found metaobject id for deletion:', id);
         
-        // 标记为已删除而不是真正删除
-        const updateResult = await shopGql(
+        // 真正删除记录
+        const deleteResult = await shopGql(
           `mutation($id:ID!){ 
-            metaobjectUpdate(id:$id, metaobject:{fields:[{key:"status", value:"Deleted"}]}){
-              metaobject{ id handle fields{ key value } } 
+            metaobjectDelete(id:$id){
+              deletedId
               userErrors{ field message } 
             } 
           }`,
           { id }
         );
         
-        console.log('GraphQL Update Query:', `mutation($id:ID!){ metaobjectUpdate(id:$id, metaobject:{fields:[{key:"status", value:"Deleted"}]}){ metaobject{ id handle fields{ key value } } userErrors{ field message } } }`);
-        console.log('GraphQL Update Variables:', { id });
-        
-        console.log('Mark as deleted result:', JSON.stringify(updateResult, null, 2));
+        console.log('Delete result:', JSON.stringify(deleteResult, null, 2));
         
         // 检查顶层错误
-        if (updateResult.errors) {
-          console.error('GraphQL errors:', updateResult.errors);
-          return res.status(500).json({ errors: updateResult.errors });
+        if (deleteResult.errors) {
+          console.error('GraphQL errors:', deleteResult.errors);
+          return res.status(500).json({ errors: deleteResult.errors });
         }
         
-        const ue = updateResult.data?.metaobjectUpdate?.userErrors;
+        const ue = deleteResult.data?.metaobjectDelete?.userErrors;
         if (ue?.length) {
-          console.error('Update user errors:', ue);
+          console.error('Delete user errors:', ue);
           return res.status(400).json({ errors: ue });
         }
         
-        // 验证更新是否成功
-        const updatedMetaobject = updateResult.data?.metaobjectUpdate?.metaobject;
-        if (!updatedMetaobject) {
-          console.error('Update failed: no metaobject returned');
-          return res.status(500).json({ error: 'Update failed' });
+        // 验证删除是否成功
+        const deletedId = deleteResult.data?.metaobjectDelete?.deletedId;
+        if (!deletedId) {
+          console.error('Delete failed: no deletedId returned');
+          return res.status(500).json({ error: 'Delete failed' });
         }
         
-        console.log('Successfully marked as deleted:', updatedMetaobject.handle);
+        console.log('Successfully deleted:', deletedId);
         
         // 清理关联的文件
         try {
@@ -287,31 +284,11 @@ export default async function handler(req, res) {
           console.warn('文件清理异常:', cleanupError);
         }
         
-        // 验证更新是否真正成功
-        const verifyResult = await shopGql(
-          `query($id:ID!){ metaobject(id:$id){ id handle fields{ key value } } }`,
-          { id }
-        );
-        
-        console.log('Verification query result:', JSON.stringify(verifyResult, null, 2));
-        
-        const verifiedStatus = verifyResult.data?.metaobject?.fields?.find(f => f.key === 'status')?.value;
-        console.log('Verified status:', verifiedStatus);
-        
-        if (verifiedStatus !== 'Deleted') {
-          console.error('Status update verification failed. Expected: Deleted, Got:', verifiedStatus);
-          return res.status(500).json({ 
-            error: 'Status update verification failed',
-            expected: 'Deleted',
-            actual: verifiedStatus
-          });
-        }
-        
+        // 删除成功，返回结果
         return res.json({ 
           success: true,
-          message: 'Metaobject marked as deleted successfully',
-          metaobject: updatedMetaobject,
-          verified: true
+          message: 'Record deleted successfully',
+          deletedId: deletedId
         });
         
       } catch (error) {
