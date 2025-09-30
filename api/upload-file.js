@@ -101,8 +101,9 @@ export default async function handler(req, res) {
     console.log('获取到 staged upload 目标:', target.url);
 
     // 2) 将文件 POST 到 target.url（multipart/form-data）
-    const FormData = require('form-data');
-    const form = new FormData();
+    // 在 Vercel/Node.js 18+ 环境中使用 form-data 包
+    const FormDataNode = (await import('form-data')).default;
+    const form = new FormDataNode();
     for (const p of target.parameters) {
       form.append(p.name, p.value);
     }
