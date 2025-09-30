@@ -98,7 +98,8 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'stagedUploadsCreate failed', details });
     }
     const target = staged.data.stagedUploadsCreate.stagedTargets[0];
-    console.log('获取到 staged upload 目标:', target.url);
+    const resourceUrl = target.resourceUrl; // 保存 resourceUrl 供后续使用
+    console.log('获取到 staged upload 目标:', { url: target.url, resourceUrl });
 
     // 2) 将文件 POST 到 target.url（multipart/form-data）
     // 手动构建 multipart/form-data
@@ -149,7 +150,12 @@ export default async function handler(req, res) {
           files { 
             ... on GenericFile {
               id
-              url
+              alt
+              createdAt
+            }
+            ... on MediaImage {
+              id
+              image { url }
             }
           }
           userErrors { field message }
@@ -181,10 +187,25 @@ export default async function handler(req, res) {
       console.error('fileCreate 错误:', details);
       return res.status(500).json({ error: 'fileCreate failed', details });
     }
+    console.log('fileCreate 响应:', JSON.stringify(fileCreateRes.data, null, 2));
+    
     const created = fileCreateRes.data.fileCreate.files[0];
+    if (!created) {
+      console.error('未能从 fileCreate 响应中获取文件记录');
+      return res.status(500).json({ error: 'File creation response invalid', details: fileCreateRes.data });
+    }
+    
     const shopifyFileId = created.id;
-    const fileUrlCdn = created.url;
-    console.log('Shopify Files 记录创建成功:', { shopifyFileId, fileUrlCdn });
+    // GenericFile 类型没有直接的 url 字段，使用 staged upload 的 resourceUrl
+    // resourceUrl 是 Google Cloud Storage 的永久 URL
+    const fileUrlCdn = created.url || created.image?.url || resourceUrl;
+    console.log('Shopify Files 记录创建成功:', { 
+      shopifyFileId, 
+      fileUrlCdn, 
+      resourceUrl,
+      hasUrl: !!fileUrlCdn,
+      createdType: created.__typename || 'unknown'
+    });
 
     // 4) 在我们自定义的 uploaded_file Metaobject 中落库（只存储元数据，不存储文件内容）
     const fields = [
