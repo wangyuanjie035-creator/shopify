@@ -42,90 +42,138 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { fileData, fileName, fileType, orderId } = req.body;
+    const { fileData, fileName: rawFileName, fileType: rawFileType, orderId } = req.body;
     
-    if (!fileData || !fileName) {
+    if (!fileData || !rawFileName) {
       return res.status(400).json({ error: 'Missing file data or filename' });
     }
 
     // 生成唯一的文件ID
     const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // 规范化与截断文件数据，避免超过 Shopify 字段 65536 字符限制
-    const MAX_FIELD_CHARS = 65000; // 留一点余量
-    let base64Data = fileData || '';
-    // 若包含 data: 前缀，去掉头部
-    const commaIdx = base64Data.indexOf(',');
-    if (base64Data.startsWith('data:') && commaIdx !== -1) {
-      base64Data = base64Data.substring(commaIdx + 1);
-    }
-    const originalSize = base64Data.length;
-    let storedData = base64Data;
-    let isTruncated = false;
-    if (storedData.length > MAX_FIELD_CHARS) {
-      storedData = storedData.slice(0, MAX_FIELD_CHARS);
-      isTruncated = true;
+    // 解析 data URI
+    let mimeType = rawFileType || 'application/octet-stream';
+    let fileName = rawFileName;
+    let base64Payload = fileData;
+    if (fileData.startsWith('data:')) {
+      const head = fileData.substring(5, fileData.indexOf(',')); // e.g. application/step;base64
+      const commaIdx2 = fileData.indexOf(',');
+      base64Payload = fileData.substring(commaIdx2 + 1);
+      const semi = head.indexOf(';');
+      mimeType = head.substring(0, semi > -1 ? semi : head.length) || mimeType;
     }
 
-    // 将文件数据存储到 Shopify Metaobject（注意：仅适合小文件/示例数据）
-    const fields = [
-      { key: 'file_id', value: fileId },
-      { key: 'file_name', value: fileName },
-      { key: 'file_type', value: fileType || 'application/octet-stream' },
-      { key: 'file_data', value: storedData }, // 存储截断后的 base64 数据
-      { key: 'order_id', value: orderId || '' }, // 关联的订单ID
-      { key: 'upload_time', value: new Date().toISOString() },
-      { key: 'file_size', value: String(originalSize) }
-    ];
+    // 将 base64 转为二进制
+    const fileBuffer = Buffer.from(base64Payload, 'base64');
+    const fileSizeBytes = fileBuffer.length;
 
-    console.log('存储文件到 Metaobject:', { fileId, fileName, fileType, size: fileData.length });
-
-    // 创建文件记录
-    const createMutation = `
-      mutation($fields: [MetaobjectFieldInput!]!) {
-        metaobjectCreate(metaobject: {type: "${FILE_METAOBJECT_TYPE}", fields: $fields}) {
-          metaobject { 
-            id 
-            handle 
-            fields { key value } 
+    // 1) 申请 staged upload 目标
+    const stagedMutation = `
+      mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+        stagedUploadsCreate(input: $input) {
+          stagedTargets {
+            url
+            resourceUrl
+            parameters { name value }
           }
           userErrors { field message }
         }
       }
     `;
+    const stagedVars = {
+      input: [
+        {
+          resource: 'FILE',
+          filename: fileName,
+          mimeType: mimeType,
+          httpMethod: 'POST'
+        }
+      ]
+    };
+    const staged = await shopGql(stagedMutation, stagedVars);
+    if (staged.errors || staged.data?.stagedUploadsCreate?.userErrors?.length) {
+      const details = staged.errors || staged.data.stagedUploadsCreate.userErrors;
+      console.error('stagedUploadsCreate 错误:', details);
+      return res.status(500).json({ error: 'stagedUploadsCreate failed', details });
+    }
+    const target = staged.data.stagedUploadsCreate.stagedTargets[0];
 
+    // 2) 将文件 POST 到 target.url（multipart/form-data）
+    const form = new FormData();
+    for (const p of target.parameters) {
+      form.append(p.name, p.value);
+    }
+    form.append('file', new Blob([fileBuffer], { type: mimeType }), fileName);
+    const uploadResp = await fetch(target.url, { method: 'POST', body: form });
+    if (!uploadResp.ok) {
+      const text = await uploadResp.text();
+      console.error('直传文件失败:', uploadResp.status, text);
+      return res.status(502).json({ error: 'Upload to staged target failed', status: uploadResp.status, body: text });
+    }
+
+    // 3) 在 Shopify Files 中创建文件记录
+    const fileCreateMutation = `
+      mutation fileCreate($files: [FileCreateInput!]!) {
+        fileCreate(files: $files) {
+          files { id url }
+          userErrors { field message }
+        }
+      }
+    `;
+    const fileCreateVars = {
+      files: [
+        {
+          originalSource: target.resourceUrl,
+          filename: fileName,
+          contentType: mimeType
+        }
+      ]
+    };
+    const fileCreateRes = await shopGql(fileCreateMutation, fileCreateVars);
+    if (fileCreateRes.errors || fileCreateRes.data?.fileCreate?.userErrors?.length) {
+      const details = fileCreateRes.errors || fileCreateRes.data.fileCreate.userErrors;
+      console.error('fileCreate 错误:', details);
+      return res.status(500).json({ error: 'fileCreate failed', details });
+    }
+    const created = fileCreateRes.data.fileCreate.files[0];
+    const shopifyFileId = created.id;
+    const fileUrlCdn = created.url;
+
+    // 4) 在我们自定义的 uploaded_file Metaobject 中落库（不存 file_data）
+    const fields = [
+      { key: 'file_id', value: fileId },
+      { key: 'file_name', value: fileName },
+      { key: 'file_type', value: mimeType },
+      { key: 'file_url', value: fileUrlCdn || '' },
+      { key: 'shopify_file_id', value: shopifyFileId || '' },
+      { key: 'order_id', value: orderId || '' },
+      { key: 'upload_time', value: new Date().toISOString() },
+      { key: 'file_size', value: String(fileSizeBytes) }
+    ];
+
+    const createMutation = `
+      mutation($fields: [MetaobjectFieldInput!]!) {
+        metaobjectCreate(metaobject: {type: "${FILE_METAOBJECT_TYPE}", fields: $fields}) {
+          metaobject { id handle }
+          userErrors { field message }
+        }
+      }
+    `;
     const result = await shopGql(createMutation, { fields });
-    
-    console.log('GraphQL 创建结果:', JSON.stringify(result, null, 2));
-    
-    if (result.errors) {
-      console.error('GraphQL 错误:', result.errors);
-      return res.status(500).json({ 
-        error: 'GraphQL 错误', 
-        details: result.errors 
-      });
-    }
-    
-    if (result.data.metaobjectCreate.userErrors.length > 0) {
-      console.error('创建文件记录失败:', result.data.metaobjectCreate.userErrors);
-      return res.status(400).json({ 
-        error: '文件存储失败', 
-        details: result.data.metaobjectCreate.userErrors 
-      });
+    if (result.errors || result.data?.metaobjectCreate?.userErrors?.length) {
+      const details = result.errors || result.data.metaobjectCreate.userErrors;
+      console.error('保存 uploaded_file 记录失败:', details);
+      // 即便落库失败，文件已存在于 Files，仍返回 fileUrl 以便用户可下载
     }
 
-    const fileRecord = result.data.metaobjectCreate.metaobject;
     const fileUrl = `https://shopify-13s4.vercel.app/api/download-file?id=${fileId}`;
-    
-    console.log('文件存储成功:', { fileId, metaobjectId: fileRecord.id });
-    
     return res.status(200).json({
       success: true,
-      fileId: fileId,
-      fileName: fileName,
-      fileUrl: fileUrl,
-      metaobjectId: fileRecord.id,
-      message: isTruncated ? '文件上传成功（已截断存储，仅用于演示）' : '文件上传成功'
+      fileId,
+      fileName,
+      fileUrl,
+      shopifyFileId,
+      cdnUrl: fileUrlCdn,
+      message: '文件上传成功（Shopify Files）'
     });
 
   } catch (error) {
