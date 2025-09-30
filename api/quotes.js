@@ -40,14 +40,10 @@ export default async function handler(req, res) {
       const q = `query { metaobjects(type:"quote", first:50){ nodes{ id handle fields{ key value } } } }`;
       const data = await shopGql(q, {});
       
-      // 过滤掉已删除的记录（只过滤明确标记为 Deleted 的）
-      const activeRecords = data.data.metaobjects.nodes.filter(record => {
-        const statusField = record.fields.find(f => f.key === 'status');
-        // 只有当状态明确是 "Deleted" 时才过滤掉，其他情况都保留
-        return !statusField || statusField.value !== 'Deleted';
-      });
+      // 暂时返回所有记录，不过滤（用于调试）
+      const allRecords = data.data.metaobjects.nodes;
       
-      return res.status(200).json({ records: activeRecords });
+      return res.status(200).json({ records: allRecords, total: allRecords.length });
     }
     if (m === 'POST') {
       const { 
