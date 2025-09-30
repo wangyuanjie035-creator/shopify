@@ -104,11 +104,35 @@ export default async function handler(req, res) {
       }
     `;
     const result = await shopGql(createMutation, { fields });
-    if (result.errors || result.data?.metaobjectCreate?.userErrors?.length) {
-      const details = result.errors || result.data.metaobjectCreate.userErrors;
-      console.error('保存 uploaded_file 记录失败:', details);
-      // 即便落库失败，文件已存在于 Files，仍返回 fileUrl 以便用户可下载
+    
+    console.log('Metaobject创建结果:', JSON.stringify(result, null, 2));
+    
+    if (result.errors) {
+      console.error('GraphQL 错误:', result.errors);
+      return res.status(500).json({ 
+        error: 'GraphQL 错误', 
+        details: result.errors 
+      });
     }
+    
+    if (result.data?.metaobjectCreate?.userErrors?.length > 0) {
+      console.error('保存 uploaded_file 记录失败:', result.data.metaobjectCreate.userErrors);
+      return res.status(400).json({ 
+        error: '文件存储失败', 
+        details: result.data.metaobjectCreate.userErrors 
+      });
+    }
+    
+    const fileRecord = result.data?.metaobjectCreate?.metaobject;
+    if (!fileRecord) {
+      console.error('未能创建 Metaobject 记录');
+      return res.status(500).json({ 
+        error: '文件存储失败', 
+        details: '未能创建文件记录' 
+      });
+    }
+    
+    console.log('文件存储成功:', { fileId, metaobjectId: fileRecord.id });
 
     const fileUrl = `https://shopify-13s4.vercel.app/api/download-file?id=${fileId}`;
     return res.status(200).json({
