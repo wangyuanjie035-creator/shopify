@@ -90,6 +90,13 @@ export default async function handler(req, res) {
     const fileName = getField('file_name') || 'download.bin';
     const fileType = getField('file_type') || 'application/octet-stream';
     const fileData = getField('file_data');
+    const fileUrlCdn = getField('file_url');
+
+    // 如果有 Shopify Files 的 URL，则直接重定向
+    if (fileUrlCdn && (fileUrlCdn.startsWith('http://') || fileUrlCdn.startsWith('https://'))) {
+      res.writeHead(302, { Location: fileUrlCdn });
+      return res.end();
+    }
 
     if (!fileData) {
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件数据缺失</title></head><body>文件数据缺失：${id}</body></html>`;
