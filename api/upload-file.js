@@ -147,9 +147,10 @@ export default async function handler(req, res) {
       mutation fileCreate($files: [FileCreateInput!]!) {
         fileCreate(files: $files) {
           files { 
-            id 
-            url
-            alt
+            ... on GenericFile {
+              id
+              url
+            }
           }
           userErrors { field message }
         }
