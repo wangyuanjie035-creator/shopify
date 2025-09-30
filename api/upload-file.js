@@ -156,12 +156,22 @@ export default async function handler(req, res) {
         }
       }
     `;
+    // 根据 MIME 类型确定 Shopify 文件类型
+    let shopifyFileType = 'FILE'; // 默认为 FILE
+    if (mimeType.startsWith('image/')) {
+      shopifyFileType = 'IMAGE';
+    } else if (mimeType.startsWith('video/')) {
+      shopifyFileType = 'VIDEO';
+    } else if (mimeType.includes('model') || mimeType.includes('step') || mimeType.includes('stl') || mimeType.includes('obj')) {
+      shopifyFileType = 'MODEL_3D';
+    }
+    
     const fileCreateVars = {
       files: [
         {
           originalSource: target.resourceUrl,
           filename: fileName,
-          contentType: mimeType
+          contentType: shopifyFileType
         }
       ]
     };
