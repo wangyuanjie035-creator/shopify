@@ -1,7 +1,7 @@
-const SHOP = process.env.SHOP;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+const SHOP = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+const ADMIN_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
 
-async function shopGql(query, variables) {
+export async function shopGql(query, variables) {
   const r = await fetch(`https://${SHOP}/admin/api/2024-07/graphql.json`, {
     method: 'POST',
     headers: { 'X-Shopify-Access-Token': ADMIN_TOKEN, 'Content-Type': 'application/json' },
@@ -64,11 +64,11 @@ export default async function handler(req, res) {
           
           // 处理文件URL - 确保符合 Shopify URL 字段要求
           if (!fileUrl || fileUrl === 'data:uri' || fileUrl === 'text:data' || fileUrl === 'data:file') {
-            fileUrl = 'https://placeholder.com/file'; // 使用占位符URL
-            console.log('使用占位符URL');
+            fileUrl = 'data:upload_failed'; // 使用状态标识符
+            console.log('使用状态标识符：upload_failed');
           } else if (!fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
-            fileUrl = 'https://placeholder.com/file'; // 使用占位符URL
-            console.log('非标准URL，使用占位符');
+            fileUrl = 'data:invalid_url'; // 使用状态标识符
+            console.log('非标准URL，使用状态标识符：invalid_url');
           }
       
       // 将 email 信息合并到 author 字段中
@@ -327,3 +327,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: e?.message || 'Server Error' });
   }
 }
+
