@@ -77,6 +77,13 @@ export default async function handler(req, res) {
     });
 
     if (!fileRecord) {
+      // 特殊处理 placeholder 文件ID
+      if (id === 'placeholder') {
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件上传失败</title><style>body{font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:40px auto;background:#f7f7f7} .card{background:#fff;padding:28px 32px;border-radius:10px;box-shadow:0 3px 16px rgba(0,0,0,.08)} h1{color:#e67e22;font-size:22px;margin:0 0 12px} p{color:#555;line-height:1.7;margin:8px 0} code{background:#f2f2f2;padding:4px 6px;border-radius:4px}</style></head><body><div class="card"><h1>⚠️ 文件上传失败</h1><p>文件ID：<code>${id}</code></p><p>此文件在上传过程中失败，无法下载。请联系客户重新上传文件。</p></div></body></html>`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(404).send(html);
+      }
+      
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件不存在</title></head><body>文件不存在：${id}</body></html>`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(404).send(html);
