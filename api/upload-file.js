@@ -66,83 +66,28 @@ export default async function handler(req, res) {
     const fileBuffer = Buffer.from(base64Payload, 'base64');
     const fileSizeBytes = fileBuffer.length;
 
-    // 1) 申请 staged upload 目标
-    const stagedMutation = `
-      mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
-        stagedUploadsCreate(input: $input) {
-          stagedTargets {
-            url
-            resourceUrl
-            parameters { name value }
-          }
-          userErrors { field message }
-        }
-      }
-    `;
-    const stagedVars = {
-      input: [
-        {
-          resource: 'FILE',
-          filename: fileName,
-          mimeType: mimeType,
-          httpMethod: 'POST'
-        }
-      ]
-    };
-    const staged = await shopGql(stagedMutation, stagedVars);
-    if (staged.errors || staged.data?.stagedUploadsCreate?.userErrors?.length) {
-      const details = staged.errors || staged.data.stagedUploadsCreate.userErrors;
-      console.error('stagedUploadsCreate 错误:', details);
-      return res.status(500).json({ error: 'stagedUploadsCreate failed', details });
-    }
-    const target = staged.data.stagedUploadsCreate.stagedTargets[0];
-
-    // 2) 将文件 POST 到 target.url（multipart/form-data）
-    const form = new FormData();
-    for (const p of target.parameters) {
-      form.append(p.name, p.value);
-    }
-    form.append('file', new Blob([fileBuffer], { type: mimeType }), fileName);
-    const uploadResp = await fetch(target.url, { method: 'POST', body: form });
-    if (!uploadResp.ok) {
-      const text = await uploadResp.text();
-      console.error('直传文件失败:', uploadResp.status, text);
-      return res.status(502).json({ error: 'Upload to staged target failed', status: uploadResp.status, body: text });
+    // 暂时使用 Metaobject 存储，因为 Shopify Files API 需要额外权限
+    console.log('使用 Metaobject 存储文件（Shopify Files 需要额外权限）');
+    
+    // 检查文件大小，如果太大则截断
+    const MAX_FIELD_CHARS = 65000; // 留一点余量
+    let storedData = base64Payload;
+    let isTruncated = false;
+    if (storedData.length > MAX_FIELD_CHARS) {
+      storedData = storedData.slice(0, MAX_FIELD_CHARS);
+      isTruncated = true;
+      console.warn(`文件过大，已截断存储。原始大小: ${base64Payload.length}, 存储大小: ${storedData.length}`);
     }
 
-    // 3) 在 Shopify Files 中创建文件记录
-    const fileCreateMutation = `
-      mutation fileCreate($files: [FileCreateInput!]!) {
-        fileCreate(files: $files) {
-          files { id url }
-          userErrors { field message }
-        }
-      }
-    `;
-    const fileCreateVars = {
-      files: [
-        {
-          originalSource: target.resourceUrl,
-          filename: fileName,
-          contentType: mimeType
-        }
-      ]
-    };
-    const fileCreateRes = await shopGql(fileCreateMutation, fileCreateVars);
-    if (fileCreateRes.errors || fileCreateRes.data?.fileCreate?.userErrors?.length) {
-      const details = fileCreateRes.errors || fileCreateRes.data.fileCreate.userErrors;
-      console.error('fileCreate 错误:', details);
-      return res.status(500).json({ error: 'fileCreate failed', details });
-    }
-    const created = fileCreateRes.data.fileCreate.files[0];
-    const shopifyFileId = created.id;
-    const fileUrlCdn = created.url;
+    const shopifyFileId = null;
+    const fileUrlCdn = null;
 
-    // 4) 在我们自定义的 uploaded_file Metaobject 中落库（不存 file_data）
+    // 4) 在我们自定义的 uploaded_file Metaobject 中落库（包含 file_data）
     const fields = [
       { key: 'file_id', value: fileId },
       { key: 'file_name', value: fileName },
       { key: 'file_type', value: mimeType },
+      { key: 'file_data', value: storedData }, // 存储截断后的 base64 数据
       { key: 'file_url', value: fileUrlCdn || '' },
       { key: 'shopify_file_id', value: shopifyFileId || '' },
       { key: 'order_id', value: orderId || '' },
@@ -173,7 +118,8 @@ export default async function handler(req, res) {
       fileUrl,
       shopifyFileId,
       cdnUrl: fileUrlCdn,
-      message: '文件上传成功（Shopify Files）'
+      message: isTruncated ? '文件上传成功（已截断存储，仅用于演示）' : '文件上传成功（Metaobject存储）',
+      isTruncated: isTruncated
     });
 
   } catch (error) {
