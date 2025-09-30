@@ -98,15 +98,19 @@ export default async function handler(req, res) {
     const fileType = getField('file_type') || 'application/octet-stream';
     const fileData = getField('file_data');
     const fileUrlCdn = getField('file_url');
+    
+    console.log('文件记录:', { id, fileName, fileType, fileUrlCdn, hasFileData: !!fileData });
 
     // 如果有 Shopify Files 的 URL，则直接重定向
     if (fileUrlCdn && (fileUrlCdn.startsWith('http://') || fileUrlCdn.startsWith('https://'))) {
+      console.log('重定向到 Shopify CDN:', fileUrlCdn);
       res.writeHead(302, { Location: fileUrlCdn });
       return res.end();
     }
 
     if (!fileData) {
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件数据缺失</title></head><body>文件数据缺失：${id}</body></html>`;
+      console.log('文件数据缺失，file_url:', fileUrlCdn);
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件数据缺失</title><style>body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;background:#f7f7f7;padding:20px}.card{background:#fff;padding:28px 32px;border-radius:10px;box-shadow:0 3px 16px rgba(0,0,0,.08)}h1{color:#e67e22;font-size:22px;margin:0 0 12px}p{color:#555;line-height:1.7;margin:8px 0}code{background:#f2f2f2;padding:4px 6px;border-radius:4px}</style></head><body><div class="card"><h1>⚠️ 文件数据缺失</h1><p>文件ID：<code>${id}</code></p><p>文件名：<code>${fileName}</code></p><p>此文件的数据未能正确存储。可能的原因：</p><ul><li>文件上传过程中断</li><li>文件过大被截断</li><li>Shopify Files API 存储失败</li></ul><p>建议：请联系客户重新上传文件。</p></div></body></html>`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(500).send(html);
     }
