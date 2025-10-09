@@ -16,11 +16,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { orderId, email, files, amount, note } = req.body;
+    const { orderId, customerEmail, senderEmail, files, amount, note } = req.body;
 
-    if (!email || !amount) {
-      return res.status(400).json({ error: 'Missing required fields: email, amount' });
+    if (!customerEmail || !amount) {
+      return res.status(400).json({ error: 'Missing required fields: customerEmail, amount' });
     }
+
+    // 如果没有发送邮箱，使用客户邮箱作为默认值（向后兼容）
+    const fromEmail = senderEmail || customerEmail;
 
     // 构建邮件内容
     const subject = `报价通知 - 订单 #${orderId ? orderId.substring(0, 8) : 'N/A'}`;
@@ -37,6 +40,7 @@ export default async function handler(req, res) {
 文件：${files || 'N/A'}
 报价金额：¥${amount}
 ${note ? `备注：${note}` : ''}
+${senderEmail ? `发送方：${senderEmail}` : ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 💳 下一步操作
@@ -151,12 +155,13 @@ ${note ? `备注：${note}` : ''}
     return res.status(200).json({
       success: true,
       email: {
-        to: email,
+        from: fromEmail,
+        to: customerEmail,
         subject: subject,
         textBody: emailBody,
         htmlBody: htmlBody
       },
-      mailto: `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`
+      mailto: `mailto:${customerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`
     });
 
   } catch (error) {
