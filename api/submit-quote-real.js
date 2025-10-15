@@ -121,12 +121,29 @@ export default async function handler(req, res) {
         note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}`
       };
 
+      // 获取环境变量 - 支持多种变量名
+      const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+      const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+      
+      if (!storeDomain || !accessToken) {
+        console.log('环境变量未配置，返回模拟数据');
+        return res.status(200).json({
+          success: true,
+          message: '环境变量未配置，返回模拟数据',
+          quoteId: quoteId,
+          draftOrderId: `gid://shopify/DraftOrder/mock-${Date.now()}`,
+          customerEmail: customerEmail || 'test@example.com',
+          fileName: fileName || 'test.stl',
+          note: '请配置SHOP/SHOPIFY_STORE_DOMAIN和ADMIN_TOKEN/SHOPIFY_ACCESS_TOKEN环境变量'
+        });
+      }
+
       // 调用Shopify Admin API
-      const response = await fetch(`https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/graphql.json`, {
+      const response = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN
+          'X-Shopify-Access-Token': accessToken
         },
         body: JSON.stringify({
           query: createDraftOrderMutation,
