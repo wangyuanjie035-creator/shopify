@@ -20,7 +20,7 @@ export default function handler(req, res) {
       draftOrder: {
         id: `gid://shopify/DraftOrder/${Date.now()}`,
         name: id || 'Q123456',
-        status: 'pending',
+        status: '待报价',
         totalPrice: '99.00',
         currency: 'CNY',
         customer: {
