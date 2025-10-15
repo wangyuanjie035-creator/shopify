@@ -28,6 +28,25 @@ export default function handler(req, res) {
           firstName: '测试',
           lastName: '用户'
         },
+        file: {
+          name: 'test-model.stl',
+          url: 'https://example.com/test-model.stl'
+        },
+        product: {
+          title: '3D打印定制服务',
+          quantity: 1
+        },
+        customization: {
+          quantity: 1,
+          material: 'ABS',
+          color: '白色',
+          precision: '标准 (±0.1mm)'
+        },
+        quote: {
+          amount: '99.00',
+          note: '这是测试报价，实际价格以客服确认为准'
+        },
+        invoiceUrl: 'https://checkout.shopify.com/test-invoice',
         lineItems: [
           {
             title: '3D打印服务',
