@@ -23,12 +23,22 @@ export default function handler(req, res) {
 
   // POST请求的简化处理
   if (req.method === 'POST') {
+    // 获取请求数据
+    const { fileName, customerEmail, customerName } = req.body;
+    
+    // 生成询价单号
+    const quoteId = `Q${Date.now()}`;
+    const draftOrderId = `gid://shopify/DraftOrder/${Date.now()}`;
+    
     return res.status(200).json({
       success: true,
-      message: 'submit-quote API工作正常！(POST版本)',
-      method: req.method,
+      message: '询价提交成功！',
+      quoteId: quoteId,
+      draftOrderId: draftOrderId,
+      customerEmail: customerEmail || 'test@example.com',
+      fileName: fileName || 'test.stl',
       timestamp: new Date().toISOString(),
-      note: '这是POST版本，支持询价提交'
+      note: '这是简化版本，支持询价提交'
     });
   }
 
