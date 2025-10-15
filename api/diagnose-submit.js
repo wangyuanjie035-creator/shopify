@@ -16,16 +16,25 @@ export default async function handler(req, res) {
   const diagnostics = {
     timestamp: new Date().toISOString(),
     environment: {
-      hasStoreDomain: !!process.env.SHOPIFY_STORE_DOMAIN,
-      hasAccessToken: !!process.env.SHOPIFY_ACCESS_TOKEN,
-      storeDomain: process.env.SHOPIFY_STORE_DOMAIN || '未配置',
-      accessTokenLength: process.env.SHOPIFY_ACCESS_TOKEN ? process.env.SHOPIFY_ACCESS_TOKEN.length : 0
+      hasStoreDomain: !!(process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP),
+      hasAccessToken: !!(process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN),
+      storeDomain: process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP || '未配置',
+      accessTokenLength: (process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN || '').length,
+      actualVariables: {
+        SHOPIFY_STORE_DOMAIN: !!process.env.SHOPIFY_STORE_DOMAIN,
+        SHOP: !!process.env.SHOP,
+        SHOPIFY_ACCESS_TOKEN: !!process.env.SHOPIFY_ACCESS_TOKEN,
+        ADMIN_TOKEN: !!process.env.ADMIN_TOKEN
+      }
     },
     testDraftOrderCreation: null
   };
 
   // 测试创建Draft Order
-  if (process.env.SHOPIFY_STORE_DOMAIN && process.env.SHOPIFY_ACCESS_TOKEN) {
+  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+  
+  if (storeDomain && accessToken) {
     try {
       const testMutation = `
         mutation draftOrderCreate($input: DraftOrderInput!) {
@@ -54,11 +63,11 @@ export default async function handler(req, res) {
         ]
       };
 
-      const response = await fetch(`https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/graphql.json`, {
+      const response = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN
+          'X-Shopify-Access-Token': accessToken
         },
         body: JSON.stringify({
           query: testMutation,
