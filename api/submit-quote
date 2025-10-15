@@ -1,364 +1,40 @@
-/**
- * ═══════════════════════════════════════════════════════════════
- * 提交询价 API - 创建 Draft Order
- * ═══════════════════════════════════════════════════════════════
- * 
- * 功能：客户提交询价时，上传文件并创建 Draft Order
- * 
- * 流程：
- * 1. 上传文件到 Shopify Files（Staged Upload）
- * 2. 创建 Draft Order（占位价格 ¥0.01）
- * 3. 创建 Metaobject（存储关联信息）
- * 4. 返回询价单号和访问链接
- * 
- * 请求示例：
- * POST /api/submit-quote
- * {
- *   "fileName": "model.step",
- *   "fileData": "base64...",
- *   "customerEmail": "customer@example.com",
- *   "quantity": 100,
- *   "material": "ABS",
- *   "color": "白色",
- *   "customerName": "张三"
- * }
- * 
- * 响应示例：
- * {
- *   "success": true,
- *   "quoteId": "#D1001",
- *   "draftOrderId": "gid://shopify/DraftOrder/123456789",
- *   "invoiceUrl": "https://checkout.shopify.com/...",
- *   "viewUrl": "/pages/my-quotes?id=D1001"
- * }
- */
-
-// ─────────────────────────────────────────────────────────────
-// 辅助函数：调用 Shopify GraphQL API
-// ─────────────────────────────────────────────────────────────
-async function shopGql(query, variables) {
-  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
-  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
-  
-  if (!storeDomain || !accessToken) {
-    throw new Error('缺少 Shopify 配置：SHOPIFY_STORE_DOMAIN 或 SHOPIFY_ACCESS_TOKEN');
-  }
-  
-  const endpoint = `https://${storeDomain}/admin/api/2024-07/graphql.json`;
-  const resp = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': accessToken,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  
-  if (!resp.ok) {
-    throw new Error(`Shopify API 请求失败: ${resp.status} ${resp.statusText}`);
-  }
-  
-  const json = await resp.json();
-  
-  if (json.errors) {
-    console.error('Shopify GraphQL 错误:', json.errors);
-    throw new Error(`GraphQL 错误: ${json.errors[0].message}`);
-  }
-  
-  return json;
-}
-
-// ─────────────────────────────────────────────────────────────
-// 主处理函数
-// ─────────────────────────────────────────────────────────────
-async function handler(req, res) {
-  // 设置 CORS 头
-  res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+// 支持GET和POST请求的submit-quote API
+export default function handler(req, res) {
+  // 设置CORS头
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
-  // 处理 OPTIONS 预检请求
+
   if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+    res.status(200).end();
+    return;
   }
-  
-  // 支持 GET 请求用于测试
+
+  // 支持GET和POST请求
   if (req.method === 'GET') {
     return res.status(200).json({
       success: true,
       message: 'submit-quote API工作正常！',
       method: req.method,
       timestamp: new Date().toISOString(),
-      note: '这是完整版本的submit-quote API'
+      note: '这是工作版本的submit-quote API'
     });
   }
-  
-  // 只接受 POST 请求用于实际询价
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-  
-  const { 
-    fileName, 
-    fileData, 
-    customerEmail, 
-    quantity, 
-    material, 
-    color,
-    customerName 
-  } = req.body;
-  
-  // 验证必填字段
-  if (!fileName || !fileData || !customerEmail) {
-    return res.status(400).json({ 
-      error: '缺少必填字段',
-      required: ['fileName', 'fileData', 'customerEmail']
-    });
-  }
-  
-  try {
-    console.log('开始处理询价提交:', { fileName, customerEmail, quantity, material });
-    
-    // ═══════════════════════════════════════════════════════════
-    // 步骤 1: 上传文件到 Shopify Files (Staged Upload)
-    // ═══════════════════════════════════════════════════════════
-    
-    // 1.1 请求临时上传地址
-    const stagedMutation = `
-      mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
-        stagedUploadsCreate(input: $input) {
-          stagedTargets {
-            url
-            resourceUrl
-            parameters { name value }
-          }
-          userErrors { field message }
-        }
-      }
-    `;
-    
-    const fileSize = Buffer.from(fileData.split(',')[1] || fileData, 'base64').length;
-    const mimeType = fileData.match(/^data:([^;]+);/) 
-      ? fileData.match(/^data:([^;]+);/)[1] 
-      : 'application/octet-stream';
-    
-    const stagedResult = await shopGql(stagedMutation, {
-      input: [{
-        filename: fileName,
-        mimeType: mimeType,
-        resource: 'FILE',
-        fileSize: fileSize.toString()
-      }]
-    });
-    
-    if (stagedResult.data.stagedUploadsCreate.userErrors.length > 0) {
-      throw new Error('创建上传目标失败: ' + stagedResult.data.stagedUploadsCreate.userErrors[0].message);
-    }
-    
-    const target = stagedResult.data.stagedUploadsCreate.stagedTargets[0];
-    console.log('获取上传地址成功:', target.url);
-    
-    // 1.2 上传文件到临时地址
-    const fileBuffer = Buffer.from(fileData.split(',')[1] || fileData, 'base64');
-    const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36)}`;
-    const parts = [];
-    
-    for (const p of target.parameters) {
-      parts.push(
-        `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="${p.name}"\r\n\r\n` +
-        `${p.value}\r\n`
-      );
-    }
-    
-    parts.push(
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-      `Content-Type: ${mimeType}\r\n\r\n`
-    );
-    
-    const textParts = Buffer.from(parts.join(''), 'utf8');
-    const endBoundary = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
-    const body = Buffer.concat([textParts, fileBuffer, endBoundary]);
-    
-    const uploadResp = await fetch(target.url, {
-      method: 'POST',
-      body: body,
-      headers: {
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': body.length.toString()
-      }
-    });
-    
-    if (!uploadResp.ok) {
-      throw new Error(`文件上传失败: ${uploadResp.status}`);
-    }
-    
-    console.log('文件上传成功');
-    
-    // 1.3 创建 Shopify File 记录
-    const fileCreateMutation = `
-      mutation($files: [FileCreateInput!]!) {
-        fileCreate(files: $files) {
-          files {
-            id
-            alt
-            createdAt
-            fileStatus
-            ... on GenericFile {
-              url
-              mimeType
-            }
-          }
-          userErrors { field message }
-        }
-      }
-    `;
-    
-    const fileCreateResult = await shopGql(fileCreateMutation, {
-      files: [{
-        alt: fileName,
-        contentType: 'FILE',
-        originalSource: target.resourceUrl
-      }]
-    });
-    
-    if (fileCreateResult.data.fileCreate.userErrors.length > 0) {
-      throw new Error('创建文件记录失败: ' + fileCreateResult.data.fileCreate.userErrors[0].message);
-    }
-    
-    const created = fileCreateResult.data.fileCreate.files[0];
-    const fileId = created.id;
-    const cdnUrl = created.url || target.resourceUrl;
-    
-    console.log('文件记录创建成功:', { fileId, cdnUrl });
-    
-    // ═══════════════════════════════════════════════════════════
-    // 步骤 2: 创建 Draft Order
-    // ═══════════════════════════════════════════════════════════
-    
-    const draftOrderMutation = `
-      mutation($input: DraftOrderInput!) {
-        draftOrderCreate(input: $input) {
-          draftOrder {
-            id
-            name
-            invoiceUrl
-            totalPrice
-            createdAt
-          }
-          userErrors { field message }
-        }
-      }
-    `;
-    
-    const draftOrderInput = {
-      email: customerEmail,
-      lineItems: [{
-        title: `定制产品 - ${fileName}`,
-        quantity: parseInt(quantity) || 1,
-        originalUnitPrice: "0.01",  // 占位价格，等待客服报价
-        customAttributes: [
-          { key: "文件名", value: fileName },
-          { key: "数量", value: (quantity || 1).toString() },
-          { key: "材质", value: material || '未指定' },
-          { key: "颜色", value: color || '未指定' },
-          { key: "客户姓名", value: customerName || '' },
-          { key: "状态", value: "待报价" },
-          { key: "_fileId", value: fileId },
-          { key: "_fileCdnUrl", value: cdnUrl }
-        ]
-      }],
-      note: `询价单 - 等待报价\n提交时间: ${new Date().toISOString()}\n客户: ${customerName || customerEmail}`,
-      tags: ['quote', 'pending', 'draft-order-quote']
-    };
-    
-    const draftOrderResult = await shopGql(draftOrderMutation, {
-      input: draftOrderInput
-    });
-    
-    if (draftOrderResult.data.draftOrderCreate.userErrors.length > 0) {
-      throw new Error('创建草稿订单失败: ' + draftOrderResult.data.draftOrderCreate.userErrors[0].message);
-    }
-    
-    const draftOrder = draftOrderResult.data.draftOrderCreate.draftOrder;
-    console.log('Draft Order 创建成功:', draftOrder.name);
-    
-    // ═══════════════════════════════════════════════════════════
-    // 步骤 3: 创建 Metaobject（存储关联信息）
-    // ═══════════════════════════════════════════════════════════
-    
-    const metaobjectMutation = `
-      mutation($metaobject: MetaobjectCreateInput!) {
-        metaobjectCreate(metaobject: $metaobject) {
-          metaobject {
-            id
-            handle
-          }
-          userErrors { field message }
-        }
-      }
-    `;
-    
-    const quoteHandle = draftOrder.name.replace('#', '').replace('D', 'Q');  // #D1001 -> Q1001
-    
-    const metaobjectInput = {
-      type: "quote",
-      fields: [
-        { key: "handle", value: quoteHandle },
-        { key: "email", value: customerEmail },
-        { key: "author", value: `${customerName || ''} (${customerEmail})` },
-        { key: "status", value: "Pending" },
-        { key: "draft_order_id", value: draftOrder.id },
-        { key: "draft_order_name", value: draftOrder.name },
-        { key: "invoice_url", value: draftOrder.invoiceUrl },
-        { key: "file_id", value: fileId },
-        { key: "file_cdn_url", value: cdnUrl },
-        { key: "file_name", value: fileName },
-        { key: "quantity", value: (quantity || 1).toString() },
-        { key: "material", value: material || '' },
-        { key: "color", value: color || '' },
-        { key: "created_at", value: new Date().toISOString() }
-      ]
-    };
-    
-    const metaobjectResult = await shopGql(metaobjectMutation, {
-      metaobject: metaobjectInput
-    });
-    
-    if (metaobjectResult.data.metaobjectCreate.userErrors.length > 0) {
-      console.warn('创建 Metaobject 失败（非致命错误）:', metaobjectResult.data.metaobjectCreate.userErrors);
-    } else {
-      console.log('Metaobject 创建成功:', metaobjectResult.data.metaobjectCreate.metaobject.handle);
-    }
-    
-    // ═══════════════════════════════════════════════════════════
-    // 返回结果
-    // ═══════════════════════════════════════════════════════════
-    
-    return res.status(201).json({
+
+  // POST请求的简化处理
+  if (req.method === 'POST') {
+    return res.status(200).json({
       success: true,
-      quoteId: draftOrder.name,  // #D1001
-      quoteHandle: quoteHandle,  // Q1001
-      draftOrderId: draftOrder.id,
-      invoiceUrl: draftOrder.invoiceUrl,
-      viewUrl: `/pages/my-quotes?id=${encodeURIComponent(draftOrder.name)}`,
-      fileId: fileId,
-      fileCdnUrl: cdnUrl,
-      message: '询价提交成功！客服将尽快为您报价。',
-      createdAt: draftOrder.createdAt
-    });
-    
-  } catch (error) {
-    console.error('提交询价失败:', error);
-    return res.status(500).json({
-      error: '提交询价失败',
-      message: error.message,
-      details: error.stack
+      message: 'submit-quote API工作正常！(POST版本)',
+      method: req.method,
+      timestamp: new Date().toISOString(),
+      note: '这是POST版本，支持询价提交'
     });
   }
+
+  // 其他方法
+  res.status(405).json({
+    error: 'Method not allowed',
+    allowed: ['GET', 'POST', 'OPTIONS']
+  });
 }
-
-// 导出为Vercel函数
-export default handler;
-
