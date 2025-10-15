@@ -348,3 +348,6 @@ export default async function handler(req, res) {
   }
 }
 
+// 导出为Vercel函数
+export default handler;
+
