@@ -130,7 +130,7 @@ export default async function handler(req, res) {
               { key: '颜色', value: color },
               { key: '精度', value: precision },
               { key: '文件', value: fileName || 'model.stl' },
-              { key: '文件ID', value: fileId || '' },
+              { key: '文件ID', value: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` },
               { key: '询价单号', value: quoteId }
             ]
           }
