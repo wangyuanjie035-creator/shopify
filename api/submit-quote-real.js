@@ -117,6 +117,10 @@ export default async function handler(req, res) {
       
       console.log('使用的邮箱:', validEmail);
 
+      // 生成文件ID（在创建草稿订单之前）
+      const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('✅ 生成文件ID:', fileId);
+
       // 准备输入数据
       const input = {
         email: validEmail,
@@ -130,7 +134,7 @@ export default async function handler(req, res) {
               { key: '颜色', value: color },
               { key: '精度', value: precision },
               { key: '文件', value: fileName || 'model.stl' },
-              { key: '文件ID', value: req.body.fileId || `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` },
+              { key: '文件ID', value: fileId },
               { key: '询价单号', value: quoteId }
             ]
           }
@@ -182,10 +186,6 @@ export default async function handler(req, res) {
       }
 
       const draftOrder = data.data.draftOrderCreate.draftOrder;
-
-      // 生成文件ID
-      const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      console.log('✅ 生成文件ID:', fileId);
 
       return res.status(200).json({
         success: true,
