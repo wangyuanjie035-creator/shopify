@@ -190,6 +190,9 @@ export default async function handler(req, res) {
           quotedAt: ''
         },
         
+        // 文件下载URL（用于管理员下载）
+        invoiceUrl: draftOrder.invoiceUrl || 'data:stored',
+        
         // 完整的lineItems（供高级使用）
         lineItems: lineItems
       }
