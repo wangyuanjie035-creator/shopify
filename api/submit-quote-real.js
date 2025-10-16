@@ -130,12 +130,14 @@ export default async function handler(req, res) {
               { key: '颜色', value: color },
               { key: '精度', value: precision },
               { key: '文件', value: fileName || 'model.stl' },
-              { key: '文件ID', value: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` },
+              { key: '文件ID', value: req.body.fileId || `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` },
               { key: '询价单号', value: quoteId }
             ]
           }
         ],
-        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}`
+        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}`,
+        // 添加文件URL字段，用于管理员下载
+        invoiceUrl: req.body.fileUrl || 'data:stored'
       };
 
       // 获取环境变量 - 支持多种变量名
