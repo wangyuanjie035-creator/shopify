@@ -69,10 +69,11 @@ async function shopGql(query, variables) {
 // 主处理函数
 // ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // 设置 CORS 头
+  // 设置 CORS 头 - 允许Shopify域名
   res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   // 处理 OPTIONS 预检请求
   if (req.method === 'OPTIONS') {
@@ -260,7 +261,7 @@ export default async function handler(req, res) {
           id: metaobjectId,
           metaobject: {
             fields: [
-              { key: "status", value: "Quoted" },
+              { key: "status", value: "已报价" },
               { key: "amount", value: amount.toString() },
               { key: "note", value: note || '' },
               { key: "quoted_at", value: new Date().toISOString() }
