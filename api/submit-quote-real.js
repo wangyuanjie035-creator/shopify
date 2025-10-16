@@ -135,9 +135,7 @@ export default async function handler(req, res) {
             ]
           }
         ],
-        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}`,
-        // 添加文件URL字段，用于管理员下载
-        invoiceUrl: req.body.fileUrl || 'data:stored'
+        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}`
       };
 
       // 获取环境变量 - 支持多种变量名
