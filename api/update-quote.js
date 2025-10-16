@@ -41,7 +41,7 @@ async function shopGql(query, variables) {
     throw new Error('缺少 Shopify 配置');
   }
   
-  const endpoint = `https://${storeDomain}/admin/api/2024-07/graphql.json`;
+  const endpoint = `https://${storeDomain}/admin/api/2024-01/graphql.json`;
   const resp = await fetch(endpoint, {
     method: 'POST',
     headers: {
