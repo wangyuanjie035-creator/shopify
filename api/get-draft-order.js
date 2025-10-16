@@ -1,215 +1,305 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- * 获取 Draft Orders 列表 API - 管理端使用
+ * 获取 Draft Order API - 客户查看询价详情
  * ═══════════════════════════════════════════════════════════════
  * 
- * 功能：获取所有 Draft Orders 列表供管理端显示
+ * 功能：根据 Draft Order 名称或 ID 获取详情
  * 
  * 用途：
- * - 管理端显示所有询价单
- * - 支持状态过滤
- * - 提供统计信息
+ * - 客户查看自己的询价状态
+ * - 客户查看报价金额
+ * - 客户决定是否下单
  * 
  * 请求示例：
- * GET /api/get-draft-orders?status=pending
- * GET /api/get-draft-orders?limit=20
+ * GET /api/get-draft-order?id=#D1001
+ * GET /api/get-draft-order?id=gid://shopify/DraftOrder/123456789
  * 
  * 响应示例：
  * {
  *   "success": true,
- *   "draftOrders": [
- *     {
- *       "id": "gid://shopify/DraftOrder/1234567890",
- *       "name": "#D1001",
- *       "email": "customer@example.com",
- *       "status": "pending",
- *       "totalPrice": "99.00",
- *       "createdAt": "2025-10-15T08:00:00Z",
- *       "lineItems": [...]
- *     }
- *   ],
- *   "total": 10,
- *   "pending": 5,
- *   "quoted": 5
+ *   "draftOrder": {
+ *     "id": "gid://shopify/DraftOrder/123456789",
+ *     "name": "#D1001",
+ *     "invoiceUrl": "https://checkout.shopify.com/...",
+ *     "totalPrice": "1500.00",
+ *     "status": "已报价",
+ *     "lineItems": [...]
+ *   }
  * }
  */
 
+// ─────────────────────────────────────────────────────────────
+// 辅助函数：调用 Shopify GraphQL API
+// ─────────────────────────────────────────────────────────────
+async function shopGql(query, variables) {
+  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+  
+  if (!storeDomain || !accessToken) {
+    throw new Error('缺少 Shopify 配置');
+  }
+  
+  const endpoint = `https://${storeDomain}/admin/api/2024-01/graphql.json`;
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': accessToken,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  
+  if (!resp.ok) {
+    throw new Error(`Shopify API 请求失败: ${resp.status}`);
+  }
+  
+  const json = await resp.json();
+  
+  if (json.errors) {
+    console.error('GraphQL 错误:', json.errors);
+    throw new Error(`GraphQL 错误: ${json.errors[0].message}`);
+  }
+  
+  return json;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 主处理函数
+// ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // 设置CORS头
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // 设置 CORS 头 - 允许Shopify域名
+  res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  // 处理 OPTIONS 预检请求
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(204).end();
   }
-
-  // 只接受GET请求
+  
+  // 只接受 GET 请求
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-
+  
+  const { id } = req.query;
+  
+  if (!id) {
+    return res.status(400).json({
+      error: '缺少参数',
+      message: '请提供 Draft Order 名称（如 #D1001）或 ID'
+    });
+  }
+  
   try {
-    console.log('开始获取Draft Orders列表...');
-
-    // 检查环境变量 - 支持多种变量名
-    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
-    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+    console.log('查询 Draft Order:', id);
     
-    if (!storeDomain || !accessToken) {
-      console.log('环境变量未配置，返回模拟数据');
-      
-      // 返回模拟数据
-      return res.status(200).json({
-        success: true,
-        message: '环境变量未配置，返回模拟数据',
-        draftOrders: [
-          {
-            id: 'gid://shopify/DraftOrder/1234567890',
-            name: '#D1001',
-            email: 'customer@example.com',
-            status: 'pending',
-            totalPrice: '99.00',
-            createdAt: new Date().toISOString(),
-            lineItems: [
-              {
-                title: '3D打印服务',
-                quantity: 1,
-                originalUnitPrice: '99.00'
+    let draftOrder = null;
+    
+    // ═══════════════════════════════════════════════════════════
+    // 方案 A: 通过 ID 直接查询（如果是 gid:// 格式）
+    // ═══════════════════════════════════════════════════════════
+    
+    if (id.startsWith('gid://shopify/DraftOrder/')) {
+      const queryById = `
+        query($id: ID!) {
+          draftOrder(id: $id) {
+            id
+            name
+            email
+            invoiceUrl
+            totalPrice
+            subtotalPrice
+            totalTax
+            createdAt
+            updatedAt
+            status
+            lineItems(first: 10) {
+              edges {
+                node {
+                  id
+                  title
+                  quantity
+                  originalUnitPrice
+                  discountedUnitPrice
+                  customAttributes {
+                    key
+                    value
+                  }
+                }
               }
-            ]
-          },
-          {
-            id: 'gid://shopify/DraftOrder/1234567891',
-            name: '#D1002',
-            email: 'test@example.com',
-            status: 'quoted',
-            totalPrice: '199.00',
-            createdAt: new Date(Date.now() - 3600000).toISOString(),
-            lineItems: [
-              {
-                title: '3D打印服务',
-                quantity: 2,
-                originalUnitPrice: '99.50'
-              }
-            ]
-          }
-        ],
-        total: 2,
-        pending: 1,
-        quoted: 1,
-        note: '这是模拟数据，请配置环境变量后重新部署'
-      });
-    }
-
-    // 获取查询参数
-    const { status, limit = 50 } = req.query;
-
-    // GraphQL查询
-    const query = `
-      query getDraftOrders($first: Int!) {
-        draftOrders(first: $first) {
-          edges {
-            node {
+            }
+            customer {
               id
-              name
+              displayName
               email
-              totalPrice
-              createdAt
-              updatedAt
-              status
-              lineItems(first: 10) {
-                edges {
-                  node {
-                    id
-                    title
-                    quantity
-                    originalUnitPrice
-                    customAttributes {
-                      key
-                      value
+            }
+          }
+        }
+      `;
+      
+      const result = await shopGql(queryById, { id });
+      draftOrder = result.data.draftOrder;
+    }
+    
+    // ═══════════════════════════════════════════════════════════
+    // 方案 B: 通过名称搜索（如果是 #D1001 格式）
+    // ═══════════════════════════════════════════════════════════
+    
+    else {
+      const queryByName = `
+        query($query: String!) {
+          draftOrders(first: 1, query: $query) {
+            edges {
+              node {
+                id
+                name
+                email
+                invoiceUrl
+                totalPrice
+                subtotalPrice
+                totalTax
+                createdAt
+                updatedAt
+                status
+                lineItems(first: 10) {
+                  edges {
+                    node {
+                      id
+                      title
+                      quantity
+                      originalUnitPrice
+                      discountedUnitPrice
+                      customAttributes {
+                        key
+                        value
+                      }
                     }
                   }
+                }
+                customer {
+                  id
+                  displayName
+                  email
                 }
               }
             }
           }
         }
+      `;
+      
+      // 格式化搜索查询
+      const searchQuery = id.startsWith('#') ? `name:${id}` : `name:#${id}`;
+      
+      const result = await shopGql(queryByName, {
+        query: searchQuery
+      });
+      
+      if (result.data.draftOrders.edges.length > 0) {
+        draftOrder = result.data.draftOrders.edges[0].node;
       }
-    `;
-
-    // 调用Shopify Admin API
-    const response = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': accessToken
-      },
-      body: JSON.stringify({
-        query: query,
-        variables: { first: parseInt(limit) }
-      })
-    });
-
-    const data = await response.json();
-    console.log('Shopify API响应:', data);
-
-    if (data.errors) {
-      console.error('GraphQL错误:', data.errors);
-      throw new Error(`GraphQL错误: ${data.errors[0].message}`);
     }
-
-    // 处理响应数据
-    const draftOrders = data.data.draftOrders.edges.map(edge => {
-      const order = edge.node;
-      return {
-        id: order.id,
-        name: order.name,
-        email: order.email,
-        status: order.status === 'INVOICE_SENT' ? 'quoted' : 'pending',
-        totalPrice: order.totalPrice,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-        lineItems: order.lineItems.edges.map(itemEdge => ({
-          id: itemEdge.node.id,
-          title: itemEdge.node.title,
-          quantity: itemEdge.node.quantity,
-          originalUnitPrice: itemEdge.node.originalUnitPrice,
-          customAttributes: itemEdge.node.customAttributes
-        }))
-      };
-    });
-
-    // 状态过滤
-    let filteredOrders = draftOrders;
-    if (status && status !== 'all') {
-      filteredOrders = draftOrders.filter(order => order.status === status);
-    }
-
-    // 计算统计信息
-    const total = draftOrders.length;
-    const pending = draftOrders.filter(o => o.status === 'pending').length;
-    const quoted = draftOrders.filter(o => o.status === 'quoted').length;
-
-    return res.status(200).json({
-      success: true,
-      message: 'Draft Orders获取成功',
-      draftOrders: filteredOrders,
-      total: total,
-      pending: pending,
-      quoted: quoted,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('获取Draft Orders失败:', error);
     
+    // ═══════════════════════════════════════════════════════════
+    // 检查是否找到
+    // ═══════════════════════════════════════════════════════════
+    
+    if (!draftOrder) {
+      return res.status(404).json({
+        error: '未找到询价单',
+        message: `未找到 ID 为 "${id}" 的草稿订单`
+      });
+    }
+    
+    // ═══════════════════════════════════════════════════════════
+    // 提取并格式化数据
+    // ═══════════════════════════════════════════════════════════
+    
+    const lineItem = draftOrder.lineItems.edges[0]?.node;
+    
+    // 从 customAttributes 中提取状态
+    const getAttr = (key) => {
+      const attr = lineItem?.customAttributes.find(a => a.key === key);
+      return attr ? attr.value : '';
+    };
+    
+    const status = getAttr('状态');
+    const fileName = getAttr('文件名');
+    const quantity = getAttr('数量');
+    const material = getAttr('材质');
+    const color = getAttr('颜色');
+    const quotedAmount = getAttr('报价金额');
+    const quotedAt = getAttr('报价时间');
+    const note = getAttr('备注');
+    const fileId = getAttr('_fileId');
+    const fileCdnUrl = getAttr('_fileCdnUrl');
+    
+    // ═══════════════════════════════════════════════════════════
+    // 返回格式化的结果
+    // ═══════════════════════════════════════════════════════════
+    
+    return res.json({
+      success: true,
+      draftOrder: {
+        id: draftOrder.id,
+        name: draftOrder.name,
+        email: draftOrder.email,
+        invoiceUrl: draftOrder.invoiceUrl,
+        totalPrice: draftOrder.totalPrice,
+        status: status || '待报价',
+        isPending: status === '待报价',
+        isQuoted: status === '已报价',
+        createdAt: draftOrder.createdAt,
+        updatedAt: draftOrder.updatedAt,
+        
+        // 商品信息
+        product: {
+          title: lineItem?.title || '',
+          quantity: parseInt(quantity) || lineItem?.quantity || 1,
+          price: lineItem?.originalUnitPrice || '0.01',
+          quotedAmount: quotedAmount || ''
+        },
+        
+        // 文件信息
+        file: {
+          name: fileName || '',
+          id: fileId || '',
+          url: fileCdnUrl || ''
+        },
+        
+        // 定制信息
+        customization: {
+          quantity: quantity || '',
+          material: material || '',
+          color: color || ''
+        },
+        
+        // 报价信息
+        quote: {
+          amount: lineItem?.originalUnitPrice || '0.01',
+          displayAmount: quotedAmount || '',
+          note: note || '',
+          quotedAt: quotedAt || ''
+        },
+        
+        // 客户信息
+        customer: draftOrder.customer ? {
+          name: draftOrder.customer.displayName,
+          email: draftOrder.customer.email
+        } : null,
+        
+        // 完整的 lineItems（供高级使用）
+        lineItems: draftOrder.lineItems.edges.map(edge => edge.node)
+      }
+    });
+    
+  } catch (error) {
+    console.error('获取 Draft Order 失败:', error);
     return res.status(500).json({
-      success: false,
-      error: error.message,
-      message: '获取Draft Orders失败',
-      timestamp: new Date().toISOString()
+      error: '获取询价失败',
+      message: error.message
     });
   }
 }
+
