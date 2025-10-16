@@ -146,7 +146,7 @@ export default async function handler(req, res) {
             ]
           }
         ],
-        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}\n文件数据: ${req.body.fileUrl ? req.body.fileUrl : '未提供'}`
+        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}\n文件大小: ${req.body.fileUrl ? Math.round(req.body.fileUrl.length / 1024) + 'KB' : '未提供'}`
       };
 
       // 获取环境变量 - 支持多种变量名
