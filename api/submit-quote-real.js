@@ -117,7 +117,38 @@ export default async function handler(req, res) {
       console.log('使用的邮箱:', validEmail);
 
       // 生成文件ID（在创建草稿订单之前）
-      const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // 如果有文件数据，先上传到Shopify Files
+      let shopifyFileInfo = null;
+      let fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
+        console.log('📁 开始上传文件到Shopify Files...');
+        
+        try {
+          const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              fileData: req.body.fileUrl,
+              fileName: fileName || 'model.stl',
+              fileType: 'application/octet-stream'
+            })
+          });
+
+          if (storeFileResponse.ok) {
+            shopifyFileInfo = await storeFileResponse.json();
+            fileId = shopifyFileInfo.fileId;
+            console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
+          } else {
+            console.warn('⚠️ 文件上传到Shopify Files失败，使用Base64存储');
+          }
+        } catch (uploadError) {
+          console.warn('⚠️ 文件上传到Shopify Files异常:', uploadError.message);
+        }
+      }
+      
       console.log('✅ 生成文件ID:', fileId);
 
       // 如果有文件数据，将其存储到Shopify的note字段中
@@ -142,7 +173,10 @@ export default async function handler(req, res) {
               { key: '文件', value: fileName || 'model.stl' },
               { key: '文件ID', value: fileId },
               { key: '询价单号', value: quoteId },
-              { key: '文件数据', value: req.body.fileUrl ? req.body.fileUrl : '未提供' }
+              { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
+              { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
+              { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
+              { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
             ]
           }
         ],
