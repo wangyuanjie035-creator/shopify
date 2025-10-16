@@ -11,7 +11,7 @@ async function shopGql(query, variables) {
     return { errors: [{ message: 'Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ACCESS_TOKEN' }] };
   }
 
-  const endpoint = `https://${storeDomain}/admin/api/2024-07/graphql.json`;
+  const endpoint = `https://${storeDomain}/admin/api/2024-01/graphql.json`;
   const resp = await fetch(endpoint, {
     method: 'POST',
     headers: {
