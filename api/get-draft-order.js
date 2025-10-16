@@ -130,11 +130,6 @@ export default async function handler(req, res) {
                 }
               }
             }
-            customer {
-              id
-              displayName
-              email
-            }
           }
         }
       `;
@@ -177,11 +172,6 @@ export default async function handler(req, res) {
                       }
                     }
                   }
-                }
-                customer {
-                  id
-                  displayName
-                  email
                 }
               }
             }
@@ -283,10 +273,10 @@ export default async function handler(req, res) {
           quotedAt: quotedAt || ''
         },
         
-        // 客户信息
-        customer: draftOrder.customer ? {
-          name: draftOrder.customer.displayName,
-          email: draftOrder.customer.email
+        // 客户信息（从email字段获取）
+        customer: draftOrder.email ? {
+          email: draftOrder.email,
+          name: '客户'
         } : null,
         
         // 完整的 lineItems（供高级使用）
