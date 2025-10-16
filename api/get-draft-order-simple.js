@@ -61,36 +61,79 @@ export default async function handler(req, res) {
   try {
     console.log('查找询价单:', id);
     
-    // 简化的查询 - 只获取基本信息，避免权限问题
-    const query = `
-      query($id: ID!) {
-        draftOrder(id: $id) {
-          id
-          name
-          email
-          totalPrice
-          status
-          createdAt
-          lineItems(first: 5) {
-            edges {
-              node {
-                id
-                title
-                quantity
-                originalUnitPrice
-                customAttributes {
-                  key
-                  value
+    let draftOrder = null;
+    
+    // 如果是GID格式，直接查询
+    if (id.startsWith('gid://shopify/DraftOrder/')) {
+      const query = `
+        query($id: ID!) {
+          draftOrder(id: $id) {
+            id
+            name
+            email
+            totalPrice
+            status
+            createdAt
+            lineItems(first: 5) {
+              edges {
+                node {
+                  id
+                  title
+                  quantity
+                  originalUnitPrice
+                  customAttributes {
+                    key
+                    value
+                  }
                 }
               }
             }
           }
         }
+      `;
+      
+      const result = await shopGql(query, { id });
+      draftOrder = result.data.draftOrder;
+    } else {
+      // 如果是名称格式，先搜索再查询
+      const searchQuery = `
+        query($query: String!) {
+          draftOrders(first: 10, query: $query) {
+            edges {
+              node {
+                id
+                name
+                email
+                totalPrice
+                status
+                createdAt
+                lineItems(first: 5) {
+                  edges {
+                    node {
+                      id
+                      title
+                      quantity
+                      originalUnitPrice
+                      customAttributes {
+                        key
+                        value
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+      
+      const searchTerm = id.startsWith('#') ? `name:${id}` : `name:#${id}`;
+      const result = await shopGql(searchQuery, { query: searchTerm });
+      
+      if (result.data.draftOrders.edges.length > 0) {
+        draftOrder = result.data.draftOrders.edges[0].node;
       }
-    `;
-    
-    const result = await shopGql(query, { id });
-    const draftOrder = result.data.draftOrder;
+    }
     
     if (!draftOrder) {
       return res.status(404).json({
