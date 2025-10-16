@@ -165,6 +165,17 @@ export default async function handler(req, res) {
     // 处理响应数据
     const draftOrders = data.data.draftOrders.edges.map(edge => {
       const order = edge.node;
+      
+      // 从第一个lineItem的customAttributes中提取文件ID
+      let fileId = null;
+      if (order.lineItems.edges.length > 0) {
+        const firstLineItem = order.lineItems.edges[0].node;
+        const fileIdAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件ID');
+        if (fileIdAttr) {
+          fileId = fileIdAttr.value;
+        }
+      }
+      
       return {
         id: order.id,
         name: order.name,
@@ -174,6 +185,7 @@ export default async function handler(req, res) {
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
         invoiceUrl: order.invoiceUrl || 'data:stored',
+        fileId: fileId, // 添加文件ID
         lineItems: order.lineItems.edges.map(itemEdge => ({
           id: itemEdge.node.id,
           title: itemEdge.node.title,
