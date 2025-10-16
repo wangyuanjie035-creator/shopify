@@ -121,6 +121,7 @@ export default async function handler(req, res) {
               updatedAt
               status
               invoiceUrl
+              note
               lineItems(first: 10) {
                 edges {
                   node {
