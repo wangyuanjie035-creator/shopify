@@ -121,6 +121,13 @@ export default async function handler(req, res) {
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       console.log('✅ 生成文件ID:', fileId);
 
+      // 如果有文件数据，将其存储到Shopify的note字段中
+      let fileDataStored = false;
+      if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
+        console.log('✅ 检测到Base64文件数据，准备存储');
+        fileDataStored = true;
+      }
+
       // 准备输入数据
       const input = {
         email: validEmail,
@@ -139,7 +146,7 @@ export default async function handler(req, res) {
             ]
           }
         ],
-        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}\n文件数据: ${req.body.fileUrl ? '已存储' : '未提供'}`
+        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}\n文件数据: ${req.body.fileUrl ? req.body.fileUrl : '未提供'}`
       };
 
       // 获取环境变量 - 支持多种变量名
