@@ -121,7 +121,6 @@ export default async function handler(req, res) {
               updatedAt
               status
               invoiceUrl
-              note
               lineItems(first: 10) {
                 edges {
                   node {
@@ -167,23 +166,20 @@ export default async function handler(req, res) {
     const draftOrders = data.data.draftOrders.edges.map(edge => {
       const order = edge.node;
       
-      // 从第一个lineItem的customAttributes中提取文件ID
+      // 从第一个lineItem的customAttributes中提取文件ID和文件数据
       let fileId = null;
+      let fileData = null;
       if (order.lineItems.edges.length > 0) {
         const firstLineItem = order.lineItems.edges[0].node;
         const fileIdAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件ID');
         if (fileIdAttr) {
           fileId = fileIdAttr.value;
         }
-      }
-      
-      // 从note字段中提取文件数据
-      let fileData = null;
-      if (order.note && order.note.includes('文件数据: data:')) {
-        const fileDataMatch = order.note.match(/文件数据: (data:[^\n]+)/);
-        if (fileDataMatch) {
-          fileData = fileDataMatch[1];
-          console.log('✅ 从note字段提取到文件数据');
+        
+        const fileDataAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件数据');
+        if (fileDataAttr && fileDataAttr.value && fileDataAttr.value.startsWith('data:')) {
+          fileData = fileDataAttr.value;
+          console.log('✅ 从customAttributes提取到文件数据');
         }
       }
 
