@@ -164,18 +164,28 @@ export default async function handler(req, res) {
         totalPrice: draftOrder.totalPrice,
         createdAt: draftOrder.createdAt,
         
-        // 文件信息
+        // 保持lineItems数组结构，供前端使用
+        lineItems: lineItems.map(item => ({
+          id: item.id,
+          title: item.title,
+          quantity: item.quantity,
+          originalUnitPrice: item.originalUnitPrice,
+          price: item.originalUnitPrice, // 兼容性字段
+          customAttributes: item.customAttributes
+        })),
+        
+        // 文件信息（向后兼容）
         file: {
           name: getAttribute('文件') || firstLineItem.title || '未知文件'
         },
         
-        // 产品信息
+        // 产品信息（向后兼容）
         product: {
           title: firstLineItem.title || '3D打印服务',
           quantity: firstLineItem.quantity || 1
         },
         
-        // 定制信息
+        // 定制信息（向后兼容）
         customization: {
           quantity: firstLineItem.quantity || 1,
           material: getAttribute('材料') || '未指定',
@@ -183,7 +193,7 @@ export default async function handler(req, res) {
           precision: getAttribute('精度') || '未指定'
         },
         
-        // 报价信息
+        // 报价信息（向后兼容）
         quote: {
           amount: draftOrder.totalPrice || '0.00',
           note: '',
