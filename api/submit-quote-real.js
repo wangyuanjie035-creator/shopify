@@ -185,13 +185,19 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         success: true,
-        message: '询价提交成功！Draft Order已创建',
+        message: '询价提交成功！客服将在24小时内为您提供报价。',
         quoteId: quoteId,
         draftOrderId: draftOrder.id,
         draftOrderName: draftOrder.name,
         invoiceUrl: draftOrder.invoiceUrl,
         customerEmail: customerEmail || 'test@example.com',
         fileName: fileName || 'test.stl',
+        nextSteps: [
+          '1. 您将收到询价确认邮件',
+          '2. 客服将评估您的需求并报价',
+          '3. 报价完成后，您将收到通知',
+          '4. 您可以在"我的询价"页面查看进度'
+        ],
         timestamp: new Date().toISOString(),
         note: '已创建真实的Shopify Draft Order'
       });
