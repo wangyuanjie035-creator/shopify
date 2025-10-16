@@ -135,7 +135,7 @@ export default async function handler(req, res) {
             ]
           }
         ],
-        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}`
+        note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}\n文件数据: ${req.body.fileUrl ? '已存储' : '未提供'}`
       };
 
       // 获取环境变量 - 支持多种变量名
@@ -183,6 +183,32 @@ export default async function handler(req, res) {
 
       const draftOrder = data.data.draftOrderCreate.draftOrder;
 
+      // 如果有文件数据，存储到文件存储API
+      let fileId = null;
+      if (req.body.fileUrl) {
+        try {
+          const fileStorageResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-data`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              draftOrderId: draftOrder.id,
+              fileData: req.body.fileUrl,
+              fileName: fileName || 'model.stl'
+            })
+          });
+          
+          if (fileStorageResponse.ok) {
+            const fileStorageResult = await fileStorageResponse.json();
+            fileId = fileStorageResult.fileId;
+            console.log('✅ 文件数据存储成功:', fileId);
+          }
+        } catch (fileError) {
+          console.warn('⚠️ 文件存储失败:', fileError);
+        }
+      }
+
       return res.status(200).json({
         success: true,
         message: '询价提交成功！客服将在24小时内为您提供报价。',
@@ -192,6 +218,7 @@ export default async function handler(req, res) {
         invoiceUrl: draftOrder.invoiceUrl,
         customerEmail: customerEmail || 'test@example.com',
         fileName: fileName || 'test.stl',
+        fileId: fileId,
         nextSteps: [
           '1. 您将收到询价确认邮件',
           '2. 客服将评估您的需求并报价',
