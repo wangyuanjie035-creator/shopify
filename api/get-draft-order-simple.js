@@ -193,6 +193,9 @@ export default async function handler(req, res) {
         // 文件下载URL（用于管理员下载）
         invoiceUrl: draftOrder.invoiceUrl || 'data:stored',
         
+        // 文件ID（从customAttributes中获取）
+        fileId: getAttribute('文件ID') || null,
+        
         // 完整的lineItems（供高级使用）
         lineItems: lineItems
       }
