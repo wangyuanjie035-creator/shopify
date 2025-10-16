@@ -120,6 +120,7 @@ export default async function handler(req, res) {
               createdAt
               updatedAt
               status
+              invoiceUrl
               lineItems(first: 10) {
                 edges {
                   node {
@@ -172,6 +173,7 @@ export default async function handler(req, res) {
         totalPrice: order.totalPrice,
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
+        invoiceUrl: order.invoiceUrl || 'data:stored',
         lineItems: order.lineItems.edges.map(itemEdge => ({
           id: itemEdge.node.id,
           title: itemEdge.node.title,
