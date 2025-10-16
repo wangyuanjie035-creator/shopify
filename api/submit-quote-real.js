@@ -183,85 +183,9 @@ export default async function handler(req, res) {
 
       const draftOrder = data.data.draftOrderCreate.draftOrder;
 
-      // 如果有文件数据，存储到文件存储API
-      let fileId = null;
-      if (req.body.fileUrl) {
-        try {
-          // 使用内部调用而不是HTTP请求，避免部署问题
-          const { storeFileData } = await import('./store-file-data.js');
-          
-          // 直接调用文件存储逻辑
-          const fileStorageResult = await storeFileData({
-            draftOrderId: draftOrder.id,
-            fileData: req.body.fileUrl,
-            fileName: fileName || 'model.stl'
-          });
-          
-          if (fileStorageResult.success) {
-            fileId = fileStorageResult.fileId;
-            console.log('✅ 文件数据存储成功:', fileId);
-            
-            // 更新草稿订单，添加文件ID
-            try {
-              const updateResponse = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-Shopify-Access-Token': accessToken,
-                },
-                body: JSON.stringify({
-                  query: `
-                    mutation draftOrderUpdate($input: DraftOrderInput!) {
-                      draftOrderUpdate(input: $input) {
-                        draftOrder {
-                          id
-                          name
-                        }
-                        userErrors {
-                          field
-                          message
-                        }
-                      }
-                    }
-                  `,
-                  variables: {
-                    input: {
-                      id: draftOrder.id,
-                      lineItems: [
-                        {
-                          id: draftOrder.lineItems.edges[0].node.id,
-                          customAttributes: [
-                            { key: '材料', value: material },
-                            { key: '颜色', value: color },
-                            { key: '精度', value: precision },
-                            { key: '文件', value: fileName || 'model.stl' },
-                            { key: '文件ID', value: fileId },
-                            { key: '询价单号', value: quoteId }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                })
-              });
-              
-              const updateData = await updateResponse.json();
-              if (updateData.errors) {
-                console.error('更新草稿订单失败:', updateData.errors);
-              } else {
-                console.log('✅ 草稿订单文件ID更新成功');
-              }
-            } catch (updateError) {
-              console.warn('⚠️ 更新草稿订单失败:', updateError);
-            }
-          }
-        } catch (fileError) {
-          console.warn('⚠️ 文件存储失败:', fileError);
-          // 如果存储失败，生成一个简单的文件ID
-          fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          console.log('⚠️ 使用备用文件ID:', fileId);
-        }
-      }
+      // 生成文件ID
+      const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('✅ 生成文件ID:', fileId);
 
       return res.status(200).json({
         success: true,
