@@ -176,6 +176,16 @@ export default async function handler(req, res) {
         }
       }
       
+      // 从note字段中提取文件数据
+      let fileData = null;
+      if (order.note && order.note.includes('文件数据: data:')) {
+        const fileDataMatch = order.note.match(/文件数据: (data:[^\n]+)/);
+        if (fileDataMatch) {
+          fileData = fileDataMatch[1];
+          console.log('✅ 从note字段提取到文件数据');
+        }
+      }
+
       return {
         id: order.id,
         name: order.name,
@@ -186,6 +196,8 @@ export default async function handler(req, res) {
         updatedAt: order.updatedAt,
         invoiceUrl: order.invoiceUrl || 'data:stored',
         fileId: fileId, // 添加文件ID
+        fileData: fileData, // 添加文件数据
+        note: order.note, // 添加note字段
         lineItems: order.lineItems.edges.map(itemEdge => ({
           id: itemEdge.node.id,
           title: itemEdge.node.title,
