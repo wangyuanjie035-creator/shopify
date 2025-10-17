@@ -185,6 +185,7 @@ export default async function handler(req, res) {
     }
     
     const updateInput = {
+      taxExempt: true,
       lineItems: [{
         title: currentLineItem.title,
         quantity: currentLineItem.quantity,
