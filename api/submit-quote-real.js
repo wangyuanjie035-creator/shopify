@@ -31,14 +31,7 @@
  * }
  */
 
-// 设置CORS头
-function setCorsHeaders(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400'); // 24小时
-}
+import { setCorsHeaders } from './cors-config.js';
 
 export default async function handler(req, res) {
   // 设置CORS头
@@ -193,7 +186,7 @@ export default async function handler(req, res) {
         { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-         { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : '已上传' }
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
       ];
       
       // 从前端lineItems中提取的详细参数
@@ -314,5 +307,3 @@ export default async function handler(req, res) {
     allowed: ['GET', 'POST', 'OPTIONS']
   });
 }
-
-export default handler;
