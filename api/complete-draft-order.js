@@ -2,16 +2,20 @@
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24小时
 }
 
 module.exports = async (req, res) => {
+  console.log('🚀 complete-draft-order API 被调用:', req.method);
+  
   // 设置CORS头
   setCorsHeaders(res);
 
   // 处理OPTIONS预检请求
   if (req.method === 'OPTIONS') {
+    console.log('📡 处理OPTIONS预检请求');
     return res.status(200).end();
   }
 
