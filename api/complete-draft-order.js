@@ -49,6 +49,59 @@ export default async (req, res) => {
 
     console.log('🔄 开始完成草稿订单:', draftOrderId);
 
+    // 首先检查草稿订单状态
+    const checkDraftOrderQuery = `
+      query getDraftOrder($id: ID!) {
+        draftOrder(id: $id) {
+          id
+          name
+          email
+          totalPrice
+          status
+          invoiceUrl
+          completedAt
+        }
+      }
+    `;
+
+    const checkResponse = await fetch(graphqlEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': adminToken,
+      },
+      body: JSON.stringify({
+        query: checkDraftOrderQuery,
+        variables: { id: draftOrderId }
+      })
+    });
+
+    const checkResult = await checkResponse.json();
+    console.log('📋 草稿订单状态检查:', checkResult);
+
+    if (!checkResult.data?.draftOrder) {
+      throw new Error('Draft order not found');
+    }
+
+    const draftOrder = checkResult.data.draftOrder;
+
+    // 如果草稿订单已经完成，直接返回结果
+    if (draftOrder.status === 'COMPLETED' || draftOrder.completedAt) {
+      console.log('✅ 草稿订单已完成，返回现有结果');
+      return res.status(200).json({
+        success: true,
+        draftOrder: {
+          id: draftOrder.id,
+          name: draftOrder.name,
+          email: draftOrder.email,
+          totalPrice: draftOrder.totalPrice,
+          status: draftOrder.status,
+          invoiceUrl: draftOrder.invoiceUrl
+        },
+        message: '草稿订单已完成'
+      });
+    }
+
     // 完成草稿订单
     const completeDraftOrderMutation = `
       mutation draftOrderComplete($id: ID!, $paymentPending: Boolean) {
