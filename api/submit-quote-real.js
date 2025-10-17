@@ -65,7 +65,8 @@ export default async function handler(req, res) {
         quantity = 1,
         material = 'ABS',
         color = '白色',
-        precision = '标准 (±0.1mm)'
+        precision = '标准 (±0.1mm)',
+        lineItems = []
       } = req.body;
 
       // 生成询价单号
@@ -79,7 +80,9 @@ export default async function handler(req, res) {
         quantity,
         material,
         color,
-        precision
+        precision,
+        lineItemsCount: lineItems.length,
+        lineItemsData: lineItems.length > 0 ? lineItems[0] : null
       });
 
       // 创建Shopify Draft Order的GraphQL查询
@@ -171,6 +174,32 @@ export default async function handler(req, res) {
         fileDataStored = true;
       }
 
+      // 构建customAttributes
+      const baseAttributes = [
+        // 基本参数
+        { key: '材料', value: material },
+        { key: '颜色', value: color },
+        { key: '精度', value: precision },
+        { key: '文件', value: fileName || 'model.stl' },
+        { key: '文件ID', value: fileId },
+        { key: '询价单号', value: quoteId },
+        { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
+        { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
+        { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
+      ];
+      
+      // 从前端lineItems中提取的详细参数
+      const frontendAttributes = lineItems.length > 0 && lineItems[0].customAttributes ? lineItems[0].customAttributes : [];
+      
+      console.log('🔧 构建customAttributes:');
+      console.log('- 基本参数数量:', baseAttributes.length);
+      console.log('- 前端参数数量:', frontendAttributes.length);
+      console.log('- 前端参数详情:', frontendAttributes);
+      
+      const allAttributes = [...baseAttributes, ...frontendAttributes];
+      console.log('- 总参数数量:', allAttributes.length);
+      
       // 准备输入数据
       const input = {
         email: validEmail,
@@ -180,18 +209,7 @@ export default async function handler(req, res) {
             title: `3D打印服务 - ${fileName || 'model.stl'}`,
             quantity: parseInt(quantity) || 1,
             originalUnitPrice: "0.00", // 占位价格，后续由管理员更新
-            customAttributes: [
-              { key: '材料', value: material },
-              { key: '颜色', value: color },
-              { key: '精度', value: precision },
-              { key: '文件', value: fileName || 'model.stl' },
-              { key: '文件ID', value: fileId },
-              { key: '询价单号', value: quoteId },
-              { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
-              { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
-              { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-              { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
-            ]
+            customAttributes: allAttributes
           }
         ],
         note: `询价单号: ${quoteId}\n客户: ${customerName || '未提供'}\n文件: ${fileName || '未提供'}\n文件大小: ${req.body.fileUrl ? Math.round(req.body.fileUrl.length / 1024) + 'KB' : '未提供'}`
