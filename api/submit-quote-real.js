@@ -208,7 +208,7 @@ export default async function handler(req, res) {
           {
             title: `3D打印服务 - ${fileName || 'model.stl'}`,
             quantity: parseInt(quantity) || 1,
-            originalUnitPrice: "0.00", // 占位价格，后续由管理员更新
+            originalUnitPrice: "1.00", // 占位价格，后续由管理员更新
             customAttributes: allAttributes
           }
         ],
