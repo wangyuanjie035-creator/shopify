@@ -182,11 +182,21 @@ export default async function handler(req, res) {
         }
       }
 
+      // 从customAttributes中获取状态信息
+      let orderStatus = 'pending';
+      if (order.lineItems.edges.length > 0) {
+        const firstLineItem = order.lineItems.edges[0].node;
+        const statusAttr = firstLineItem.customAttributes.find(attr => attr.key === '状态');
+        if (statusAttr && statusAttr.value === '已报价') {
+          orderStatus = 'quoted';
+        }
+      }
+
       return {
         id: order.id,
         name: order.name,
         email: order.email,
-        status: order.status === 'INVOICE_SENT' ? 'quoted' : 'pending',
+        status: orderStatus, // 使用从customAttributes获取的状态
         totalPrice: order.totalPrice,
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
