@@ -102,16 +102,16 @@ export default async function handler(req, res) {
       `;
 
       // 验证和清理邮箱格式
-      let validEmail = customerEmail || 'test@example.com';
+      if (!customerEmail) {
+        throw new Error('客户邮箱不能为空');
+      }
       
-      // 清理邮箱格式
-      validEmail = validEmail.trim().toLowerCase();
+      let validEmail = customerEmail.trim().toLowerCase();
       
-      // 如果邮箱格式不正确，使用默认邮箱
+      // 验证邮箱格式
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(validEmail)) {
-        console.log('邮箱格式无效，使用默认邮箱:', validEmail);
-        validEmail = 'test@example.com';
+        throw new Error(`邮箱格式无效: ${customerEmail}`);
       }
       
       console.log('使用的邮箱:', validEmail);
@@ -161,7 +161,7 @@ export default async function handler(req, res) {
       // 准备输入数据
       const input = {
         email: validEmail,
-        taxExempt: true,
+        taxExempt: true, // 免除税费，避免额外费用
         lineItems: [
           {
             title: `3D打印服务 - ${fileName || 'model.stl'}`,
