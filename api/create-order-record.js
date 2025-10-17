@@ -90,7 +90,7 @@ export default async (req, res) => {
 
     // 创建订单记录（存储到本地或数据库）
     const orderRecord = {
-      id: `order_${Date.now()}`,
+      id: `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       draftOrderId: draftOrder.id,
       draftOrderName: draftOrder.name,
       customerEmail: customerEmail || draftOrder.email,
