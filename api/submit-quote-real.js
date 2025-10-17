@@ -56,6 +56,8 @@ export default async function handler(req, res) {
   // POST请求处理
   if (req.method === 'POST') {
     try {
+      console.log('📥 接收到的请求体:', req.body);
+      
       const { 
         fileName, 
         customerEmail, 
@@ -69,7 +71,16 @@ export default async function handler(req, res) {
       // 生成询价单号
       const quoteId = `Q${Date.now()}`;
       
-      console.log('开始创建Draft Order:', { quoteId, customerEmail, fileName });
+      console.log('📊 解析后的参数:', { 
+        quoteId, 
+        customerEmail, 
+        customerName, 
+        fileName,
+        quantity,
+        material,
+        color,
+        precision
+      });
 
       // 创建Shopify Draft Order的GraphQL查询
       const createDraftOrderMutation = `
@@ -103,7 +114,8 @@ export default async function handler(req, res) {
 
       // 验证和清理邮箱格式
       if (!customerEmail) {
-        throw new Error('客户邮箱不能为空');
+        console.error('❌ 客户邮箱为空:', { customerEmail, customerName, fileName });
+        throw new Error('客户邮箱不能为空，请确保已正确登录或输入客户信息');
       }
       
       let validEmail = customerEmail.trim().toLowerCase();
@@ -111,6 +123,7 @@ export default async function handler(req, res) {
       // 验证邮箱格式
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(validEmail)) {
+        console.error('❌ 邮箱格式无效:', { customerEmail, validEmail });
         throw new Error(`邮箱格式无效: ${customerEmail}`);
       }
       
