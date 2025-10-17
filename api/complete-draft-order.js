@@ -6,7 +6,7 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
   // 设置CORS头
   setCorsHeaders(res);
 
@@ -44,6 +44,74 @@ module.exports = async (req, res) => {
     const graphqlEndpoint = `https://${shopifyDomain}/admin/api/2024-01/graphql.json`;
 
     console.log('🔄 开始完成草稿订单:', draftOrderId);
+
+    // 先查询草稿订单的当前状态
+    const queryDraftOrder = `
+      query($id: ID!) {
+        draftOrder(id: $id) {
+          id
+          name
+          email
+          totalPrice
+          status
+          invoiceUrl
+          completedAt
+          lineItems(first: 10) {
+            edges {
+              node {
+                id
+                title
+                quantity
+                originalUnitPrice
+                customAttributes {
+                  key
+                  value
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    console.log('📋 查询草稿订单状态...');
+    const queryResponse = await fetch(graphqlEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': adminToken,
+      },
+      body: JSON.stringify({
+        query: queryDraftOrder,
+        variables: { id: draftOrderId }
+      })
+    });
+
+    const queryResult = await queryResponse.json();
+    console.log('📋 查询结果:', queryResult);
+
+    const currentDraftOrder = queryResult.data?.draftOrder;
+    
+    if (!currentDraftOrder) {
+      throw new Error('草稿订单不存在');
+    }
+
+    // 如果已经完成或有发票链接，直接返回
+    if (currentDraftOrder.status === 'COMPLETED' || currentDraftOrder.completedAt || currentDraftOrder.invoiceUrl) {
+      console.log('✅ 草稿订单已完成，返回现有信息');
+      return res.status(200).json({
+        success: true,
+        draftOrder: {
+          id: currentDraftOrder.id,
+          name: currentDraftOrder.name,
+          email: currentDraftOrder.email,
+          totalPrice: currentDraftOrder.totalPrice,
+          status: currentDraftOrder.status,
+          invoiceUrl: currentDraftOrder.invoiceUrl
+        },
+        message: '草稿订单已完成'
+      });
+    }
 
     // 完成草稿订单
     const completeDraftOrderMutation = `
@@ -84,7 +152,45 @@ module.exports = async (req, res) => {
     console.log('📋 完成草稿订单结果:', completeResult);
 
     if (completeResult.data?.draftOrderComplete?.userErrors?.length > 0) {
-      throw new Error(`完成草稿订单失败: ${completeResult.data.draftOrderComplete.userErrors.map(e => e.message).join(', ')}`);
+      const errorMessages = completeResult.data.draftOrderComplete.userErrors.map(e => e.message);
+      console.log('⚠️ 完成草稿订单遇到错误:', errorMessages);
+      
+      // 如果是"invoice has already been paid"错误，重新查询订单状态
+      if (errorMessages.some(msg => msg.includes('invoice has already been paid'))) {
+        console.log('🔄 发票已支付，重新查询订单状态...');
+        
+        const reQueryResponse = await fetch(graphqlEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': adminToken,
+          },
+          body: JSON.stringify({
+            query: queryDraftOrder,
+            variables: { id: draftOrderId }
+          })
+        });
+
+        const reQueryResult = await reQueryResponse.json();
+        const reQueryDraftOrder = reQueryResult.data?.draftOrder;
+        
+        if (reQueryDraftOrder) {
+          return res.status(200).json({
+            success: true,
+            draftOrder: {
+              id: reQueryDraftOrder.id,
+              name: reQueryDraftOrder.name,
+              email: reQueryDraftOrder.email,
+              totalPrice: reQueryDraftOrder.totalPrice,
+              status: reQueryDraftOrder.status,
+              invoiceUrl: reQueryDraftOrder.invoiceUrl
+            },
+            message: '草稿订单已完成'
+          });
+        }
+      }
+      
+      throw new Error(`完成草稿订单失败: ${errorMessages.join(', ')}`);
     }
 
     const completedDraftOrder = completeResult.data.draftOrderComplete.draftOrder;
