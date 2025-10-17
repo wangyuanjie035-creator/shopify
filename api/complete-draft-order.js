@@ -7,7 +7,7 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Max-Age', '86400'); // 24小时
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
   console.log('🚀 complete-draft-order API 被调用:', req.method);
   
   // 设置CORS头
