@@ -161,6 +161,7 @@ export default async function handler(req, res) {
       // 准备输入数据
       const input = {
         email: validEmail,
+        taxExempt: true,
         lineItems: [
           {
             title: `3D打印服务 - ${fileName || 'model.stl'}`,
