@@ -24,9 +24,12 @@ export default async (req, res) => {
   }
 
   try {
+    console.log('📋 收到请求:', req.body);
+    
     const { draftOrderId } = req.body;
     
     if (!draftOrderId) {
+      console.log('❌ 缺少draftOrderId');
       return res.status(400).json({
         success: false,
         error: 'Draft Order ID is required'
@@ -36,8 +39,13 @@ export default async (req, res) => {
     const shop = process.env.SHOP;
     const adminToken = process.env.ADMIN_TOKEN;
 
+    console.log('🔧 环境变量检查:');
+    console.log('- SHOP:', shop ? '已设置' : '未设置');
+    console.log('- ADMIN_TOKEN:', adminToken ? '已设置' : '未设置');
+
     if (!shop || !adminToken) {
-      throw new Error('Missing environment variables: SHOP or ADMIN_TOKEN');
+      console.log('❌ 环境变量缺失');
+      throw new Error(`Missing environment variables: SHOP=${shop ? 'OK' : 'MISSING'} or ADMIN_TOKEN=${adminToken ? 'OK' : 'MISSING'}`);
     }
 
     const shopifyDomain = shop.includes('.myshopify.com') ? shop : `${shop}.myshopify.com`;
@@ -210,11 +218,18 @@ export default async (req, res) => {
 
   } catch (error) {
     console.error('❌ 完成草稿订单失败:', error);
+    console.error('❌ 错误堆栈:', error.stack);
     
     return res.status(500).json({
       success: false,
       error: error.message,
-      message: '完成草稿订单失败'
+      message: '完成草稿订单失败',
+      details: {
+        draftOrderId: req.body?.draftOrderId,
+        timestamp: new Date().toISOString(),
+        shop: process.env.SHOP ? '已设置' : '未设置',
+        adminToken: process.env.ADMIN_TOKEN ? '已设置' : '未设置'
+      }
     });
   }
 };
