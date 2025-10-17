@@ -186,7 +186,7 @@ export default async function handler(req, res) {
         { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : '已上传' }
       ];
       
       // 从前端lineItems中提取的详细参数
