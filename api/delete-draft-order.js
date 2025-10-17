@@ -27,7 +27,7 @@
 export default async function handler(req, res) {
   // 设置CORS头 - 允许Shopify域名
   res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
-  res.setHeader('Access-Control-Allow-Methods', 'DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 
@@ -36,8 +36,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  // 只接受DELETE请求
-  if (req.method !== 'DELETE') {
+  // 接受POST和DELETE请求
+  if (req.method !== 'DELETE' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
