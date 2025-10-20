@@ -135,7 +135,7 @@ export default async function handler(req, res) {
     // ═══════════════════════════════════════════════════════════
     
     const sendInvoiceMutation = `
-      mutation draftOrderInvoiceSend($id: ID!, $input: DraftOrderInvoiceSendInput!) {
+      mutation draftOrderInvoiceSend($id: ID!, $input: DraftOrderInvoiceInput!) {
         draftOrderInvoiceSend(id: $id, input: $input) {
           draftOrder {
             id
