@@ -39,11 +39,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { id, draftOrderId } = req.query;
+    const { id, draftOrderId, shopifyFileId, fileName: requestedFileName } = req.query;
     
     // 如果提供了draftOrderId，则获取多文件信息
     if (draftOrderId) {
       return await handleMultipleFilesDownload(req, res, draftOrderId);
+    }
+    
+    // 如果提供了shopifyFileId，则通过Shopify Files下载
+    if (shopifyFileId) {
+      return await handleShopifyFileDownload(req, res, shopifyFileId, requestedFileName);
     }
     
     if (!id) {
@@ -198,12 +203,30 @@ async function handleMultipleFilesDownload(req, res, draftOrderId) {
     // 解析每个文件的信息
     for (let i = 1; i <= fileCount; i++) {
       const fileNameAttr = customAttributes.find(attr => attr.key === `文件${i}_名称`);
+      const shopifyFileIdAttr = customAttributes.find(attr => attr.key === `文件${i}_ShopifyID`);
+      const cdnUrlAttr = customAttributes.find(attr => attr.key === `文件${i}_CDN链接`);
       
       if (fileNameAttr) {
+        let downloadUrl = null;
+        
+        // Choose file download URL based on storage method
+        if (cdnUrlAttr && cdnUrlAttr.value && cdnUrlAttr.value !== '未上传') {
+          // Use CDN URL if available
+          downloadUrl = cdnUrlAttr.value;
+        } else if (shopifyFileIdAttr && shopifyFileIdAttr.value && shopifyFileIdAttr.value !== '未上传') {
+          // Use Shopify File ID
+          downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?shopifyFileId=${encodeURIComponent(shopifyFileIdAttr.value)}&fileName=${encodeURIComponent(fileNameAttr.value)}`;
+        } else {
+          // Fallback to filename-based download
+          downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`;
+        }
+        
         const fileInfo = {
           index: i,
           name: fileNameAttr.value,
-          downloadUrl: `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`
+          shopifyFileId: shopifyFileIdAttr?.value || null,
+          cdnUrl: cdnUrlAttr?.value || null,
+          downloadUrl: downloadUrl
         };
         
         files.push(fileInfo);
@@ -214,12 +237,27 @@ async function handleMultipleFilesDownload(req, res, draftOrderId) {
     // 如果没有找到多文件信息，尝试获取单文件信息（兼容旧版本）
     if (files.length === 0) {
       const fileNameAttr = customAttributes.find(attr => attr.key === '文件');
+      const shopifyFileIdAttr = customAttributes.find(attr => attr.key === 'Shopify文件ID');
+      const mainFileShopifyIdAttr = customAttributes.find(attr => attr.key === '主文件ShopifyID');
       
       if (fileNameAttr) {
+        let downloadUrl = null;
+        
+        // 优先使用主文件ShopifyID，然后是Shopify文件ID
+        const shopifyFileId = mainFileShopifyIdAttr?.value || shopifyFileIdAttr?.value;
+        
+        if (shopifyFileId && shopifyFileId !== '未上传') {
+          downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?shopifyFileId=${encodeURIComponent(shopifyFileId)}&fileName=${encodeURIComponent(fileNameAttr.value)}`;
+        } else {
+          // Fallback to filename-based download
+          downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`;
+        }
+        
         const fileInfo = {
           index: 1,
           name: fileNameAttr.value,
-          downloadUrl: `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`
+          shopifyFileId: shopifyFileId,
+          downloadUrl: downloadUrl
         };
         
         files.push(fileInfo);
@@ -242,6 +280,64 @@ async function handleMultipleFilesDownload(req, res, draftOrderId) {
     console.error('获取文件信息失败:', error);
     return res.status(500).json({
       error: '获取文件信息失败',
+      message: error.message
+    });
+  }
+}
+
+// 处理Shopify文件下载
+async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
+  try {
+    console.log('开始下载Shopify文件:', { shopifyFileId, fileName });
+
+    // 构建GraphQL查询来获取文件URL
+    const query = `
+      query($id: ID!) {
+        file(id: $id) {
+          ... on GenericFile {
+            url
+            originalFileSize
+            contentType
+          }
+          ... on MediaImage {
+            image {
+              url
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await shopGql(query, { id: shopifyFileId });
+
+    if (!result.data.file) {
+      return res.status(404).json({ error: '文件未找到' });
+    }
+
+    const file = result.data.file;
+    let fileUrl = null;
+
+    // 获取文件URL
+    if (file.url) {
+      fileUrl = file.url;
+    } else if (file.image && file.image.url) {
+      fileUrl = file.image.url;
+    }
+
+    if (!fileUrl) {
+      return res.status(404).json({ error: '文件URL不可用' });
+    }
+
+    console.log('文件URL获取成功:', fileUrl);
+
+    // 设置下载头并重定向到文件URL
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'download'}"`);
+    return res.redirect(302, fileUrl);
+
+  } catch (error) {
+    console.error('Shopify文件下载失败:', error);
+    return res.status(500).json({
+      error: '文件下载失败',
       message: error.message
     });
   }
