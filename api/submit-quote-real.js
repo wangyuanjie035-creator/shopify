@@ -191,11 +191,22 @@ export default async function handler(req, res) {
         { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
       ];
       
-      // 从前端lineItems中提取的详细参数
-      const frontendAttributes = lineItems.length > 0 && lineItems[0].customAttributes ? lineItems[0].customAttributes : [];
+      // 从前端lineItems中提取的详细参数，过滤掉Base64数据
+      const frontendAttributes = lineItems.length > 0 && lineItems[0].customAttributes ? lineItems[0].customAttributes.filter(attr => {
+        // 过滤掉包含Base64数据的属性
+        if (attr.key === '文件数据' || attr.key === 'fileData' || attr.key === 'file_data') {
+          return false;
+        }
+        // 过滤掉值过长的属性（可能是Base64数据）
+        if (attr.value && attr.value.length > 1000) {
+          console.log('⚠️ 过滤掉过长的属性:', attr.key, '长度:', attr.value.length);
+          return false;
+        }
+        return true;
+      }) : [];
       
       console.log('🔧 构建customAttributes:');
       console.log('- 基本参数数量:', baseAttributes.length);
