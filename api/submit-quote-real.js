@@ -154,11 +154,16 @@ export default async function handler(req, res) {
           });
 
           if (storeFileResponse.ok) {
-            shopifyFileInfo = await storeFileResponse.json();
-            fileId = shopifyFileInfo.fileId;
-            console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
+            const contentType = storeFileResponse.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              shopifyFileInfo = await storeFileResponse.json();
+              fileId = shopifyFileInfo.fileId;
+              console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
+            } else {
+              console.warn('⚠️ 文件上传API返回非JSON响应，使用Base64存储');
+            }
           } else {
-            console.warn('⚠️ 文件上传到Shopify Files失败，使用Base64存储');
+            console.warn('⚠️ 文件上传到Shopify Files失败，状态码:', storeFileResponse.status, '使用Base64存储');
           }
         } catch (uploadError) {
           console.warn('⚠️ 文件上传到Shopify Files异常:', uploadError.message);
@@ -186,7 +191,7 @@ export default async function handler(req, res) {
         { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : '已上传' }
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl || '未提供') }
       ];
       
       // 从前端lineItems中提取的详细参数
@@ -208,7 +213,7 @@ export default async function handler(req, res) {
           {
             title: `3D打印服务 - ${fileName || 'model.stl'}`,
             quantity: parseInt(quantity) || 1,
-            originalUnitPrice: "1.00", // 占位价格，后续由管理员更新
+            originalUnitPrice: "0.00", // 占位价格，后续由管理员更新
             customAttributes: allAttributes
           }
         ],
