@@ -158,8 +158,8 @@ export default async function handler(req, res) {
                 name
                 email
                 totalPrice
-                financialStatus
-                fulfillmentStatus
+                displayFinancialStatus
+                displayFulfillmentStatus
                 processedAt
                 createdAt
                 updatedAt
@@ -230,8 +230,8 @@ export default async function handler(req, res) {
     
     if (isCompleted && orderInfo) {
       // 已完成的订单，根据财务状态和履行状态确定状态
-      const financialStatus = orderInfo.financialStatus;
-      const fulfillmentStatus = orderInfo.fulfillmentStatus;
+      const financialStatus = orderInfo.displayFinancialStatus;
+      const fulfillmentStatus = orderInfo.displayFulfillmentStatus;
       
       console.log('订单状态分析:', {
         financialStatus,
@@ -239,12 +239,14 @@ export default async function handler(req, res) {
         totalPrice: orderInfo.totalPrice
       });
       
-      if (financialStatus === 'PAID') {
+      // 处理财务状态（使用displayFinancialStatus的值）
+      if (financialStatus === 'Paid' || financialStatus === 'paid') {
         status = '已付款';
         statusCode = 'paid';
         paidAt = orderInfo.processedAt || orderInfo.updatedAt;
         
-        if (fulfillmentStatus === 'FULFILLED') {
+        // 处理履行状态
+        if (fulfillmentStatus === 'Fulfilled' || fulfillmentStatus === 'fulfilled') {
           status = '已发货';
           statusCode = 'fulfilled';
           fulfilledAt = orderInfo.fulfillments.edges.length > 0 ? 
@@ -256,12 +258,17 @@ export default async function handler(req, res) {
             trackingInfo: edge.node.trackingInfo
           }));
         }
-      } else if (financialStatus === 'PENDING') {
+      } else if (financialStatus === 'Pending' || financialStatus === 'pending') {
         status = '待付款';
         statusCode = 'pending_payment';
-      } else if (financialStatus === 'PARTIALLY_PAID') {
+      } else if (financialStatus === 'Partially paid' || financialStatus === 'partially_paid') {
         status = '部分付款';
         statusCode = 'partially_paid';
+        paidAt = orderInfo.processedAt || orderInfo.updatedAt;
+      } else {
+        // 默认情况：如果财务状态未知但订单已完成，标记为已付款
+        status = '已付款';
+        statusCode = 'paid';
         paidAt = orderInfo.processedAt || orderInfo.updatedAt;
       }
     } else {
@@ -312,8 +319,8 @@ export default async function handler(req, res) {
       orderInfo: orderInfo ? {
         id: orderInfo.id,
         name: orderInfo.name,
-        financialStatus: orderInfo.financialStatus,
-        fulfillmentStatus: orderInfo.fulfillmentStatus,
+        financialStatus: orderInfo.displayFinancialStatus,
+        fulfillmentStatus: orderInfo.displayFulfillmentStatus,
         processedAt: orderInfo.processedAt
       } : null,
       updatedAt: new Date().toISOString()
