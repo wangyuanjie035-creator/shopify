@@ -141,28 +141,69 @@ export default async function handler(req, res) {
       const fileCountAttr = lineItems.length > 0 ? lineItems[0].customAttributes?.find(attr => attr.key === '上传文件数量') : null;
       const fileCount = fileCountAttr ? parseInt(fileCountAttr.value) : 1;
       
-      if (fileCount > 1 && lineItems.length > 0) {
-        // 多文件处理：从lineItems中提取文件信息
-        console.log('📁 检测到多文件上传，文件数量:', fileCount);
+      // 检查是否有多个文件需要上传
+      if (req.body.allFiles && Array.isArray(req.body.allFiles) && req.body.allFiles.length > 1) {
+        console.log('📁 开始上传多个文件到Shopify Files...', req.body.allFiles.length, '个文件');
         
-        // 注意：多文件上传时，实际文件数据在前端已经处理，这里只是提取文件信息
-        // 实际的文件上传应该在多文件上传流程中完成
+        // 上传所有文件到Shopify Files
+        for (const fileInfo of req.body.allFiles) {
+          if (fileInfo.data && fileInfo.data.startsWith('data:')) {
+            try {
+              const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fileData: fileInfo.data,
+                  fileName: fileInfo.name,
+                  fileType: fileInfo.type || 'application/octet-stream'
+                })
+              });
+
+              if (storeFileResponse.ok) {
+                const contentType = storeFileResponse.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                  const shopifyFileInfo = await storeFileResponse.json();
+                  allFilesInfo.push({
+                    index: allFilesInfo.length + 1,
+                    name: fileInfo.name,
+                    size: fileInfo.size,
+                    type: fileInfo.type,
+                    shopifyFileId: shopifyFileInfo.shopifyFileId,
+                    fileId: shopifyFileInfo.fileId,
+                    cdnUrl: shopifyFileInfo.cdnUrl
+                  });
+                  console.log('✅ 文件上传成功:', fileInfo.name, shopifyFileInfo);
+                } else {
+                  console.warn('⚠️ 文件上传API返回非JSON响应:', fileInfo.name);
+                }
+              } else {
+                console.warn('⚠️ 文件上传失败:', fileInfo.name, '状态码:', storeFileResponse.status);
+              }
+            } catch (uploadError) {
+              console.warn('⚠️ 文件上传异常:', fileInfo.name, uploadError.message);
+            }
+          }
+        }
+        
+        console.log('多文件上传完成:', allFilesInfo);
+      } else if (fileCount > 1 && lineItems.length > 0) {
+        // 兼容旧版本：从lineItems中提取文件信息（但实际文件可能没有上传）
+        console.log('📁 检测到多文件信息，但实际文件可能未上传，文件数量:', fileCount);
+        
         for (let i = 1; i <= fileCount; i++) {
           const fileNameAttr = lineItems[0].customAttributes?.find(attr => attr.key === `文件${i}_名称`);
           if (fileNameAttr) {
             allFilesInfo.push({
               index: i,
               name: fileNameAttr.value,
-              type: 'uploaded'
+              type: 'uploaded',
+              shopifyFileId: null,
+              cdnUrl: null
             });
           }
         }
         
-        console.log('多文件信息:', allFilesInfo);
-        
-        // 对于多文件，我们需要检查是否有实际的文件数据需要上传
-        // 由于前端只发送了主文件的数据，其他文件信息只是名称
-        // 这里我们标记为已处理，但实际下载时需要特殊处理
+        console.log('多文件信息（兼容模式）:', allFilesInfo);
       } else {
         // 单文件处理
         if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
@@ -233,16 +274,28 @@ export default async function handler(req, res) {
         });
         baseAttributes.push({
           key: `文件${index + 1}_类型`,
-          value: fileInfo.type
+          value: fileInfo.type || 'unknown'
         });
         
-        // 对于多文件，我们需要标记这些文件为"需要特殊处理"
-        // 因为实际的文件数据可能没有上传到Shopify Files
-        if (fileCount > 1) {
+        // 存储Shopify文件信息（如果有的话）
+        if (fileInfo.shopifyFileId) {
+          baseAttributes.push({
+            key: `文件${index + 1}_ShopifyID`,
+            value: fileInfo.shopifyFileId
+          });
+        } else {
           baseAttributes.push({
             key: `文件${index + 1}_ShopifyID`,
             value: '未上传'
           });
+        }
+        
+        if (fileInfo.cdnUrl) {
+          baseAttributes.push({
+            key: `文件${index + 1}_CDN链接`,
+            value: fileInfo.cdnUrl
+          });
+        } else {
           baseAttributes.push({
             key: `文件${index + 1}_CDN链接`,
             value: '未上传'
