@@ -39,7 +39,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { id } = req.query;
+    const { id, shopifyFileId, fileName: requestedFileName } = req.query;
+    
+    // 如果提供了shopifyFileId，则通过Shopify Files下载
+    if (shopifyFileId) {
+      return await handleShopifyFileDownload(req, res, shopifyFileId, requestedFileName);
+    }
+    
     if (!id) {
       return res.status(400).json({ error: 'Missing file ID' });
     }
@@ -132,6 +138,64 @@ export default async function handler(req, res) {
     return res.status(500).json({ 
       error: '文件下载失败', 
       details: error.message 
+    });
+  }
+  }
+
+// 处理Shopify文件下载
+async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
+  try {
+    console.log('开始下载Shopify文件:', { shopifyFileId, fileName });
+
+    // 构建GraphQL查询来获取文件URL
+    const query = `
+      query($id: ID!) {
+        file(id: $id) {
+          ... on GenericFile {
+            url
+            originalFileSize
+            contentType
+          }
+          ... on MediaImage {
+            image {
+              url
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await shopGql(query, { id: shopifyFileId });
+
+    if (!result.data.file) {
+      return res.status(404).json({ error: '文件未找到' });
+    }
+
+    const file = result.data.file;
+    let fileUrl = null;
+
+    // 获取文件URL
+    if (file.url) {
+      fileUrl = file.url;
+    } else if (file.image && file.image.url) {
+      fileUrl = file.image.url;
+    }
+
+    if (!fileUrl) {
+      return res.status(404).json({ error: '文件URL不可用' });
+    }
+
+    console.log('文件URL获取成功:', fileUrl);
+
+    // 设置下载头并重定向到文件URL
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'download'}"`);
+    return res.redirect(302, fileUrl);
+
+  } catch (error) {
+    console.error('Shopify文件下载失败:', error);
+    return res.status(500).json({
+      error: '文件下载失败',
+      message: error.message
     });
   }
 }
