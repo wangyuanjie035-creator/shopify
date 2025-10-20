@@ -217,8 +217,9 @@ async function handleMultipleFilesDownload(req, res, draftOrderId) {
           // Use Shopify File ID
           downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?shopifyFileId=${encodeURIComponent(shopifyFileIdAttr.value)}&fileName=${encodeURIComponent(fileNameAttr.value)}`;
         } else {
-          // Fallback to filename-based download
-          downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`;
+          // For files without Shopify File ID, show error instead of creating loop
+          downloadUrl = null;
+          console.warn(`文件 ${fileNameAttr.value} 没有有效的下载链接`);
         }
         
         const fileInfo = {
@@ -249,8 +250,9 @@ async function handleMultipleFilesDownload(req, res, draftOrderId) {
         if (shopifyFileId && shopifyFileId !== '未上传') {
           downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?shopifyFileId=${encodeURIComponent(shopifyFileId)}&fileName=${encodeURIComponent(fileNameAttr.value)}`;
         } else {
-          // Fallback to filename-based download
-          downloadUrl = `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`;
+          // For files without Shopify File ID, show error instead of creating loop
+          downloadUrl = null;
+          console.warn(`单文件 ${fileNameAttr.value} 没有有效的下载链接`);
         }
         
         const fileInfo = {
