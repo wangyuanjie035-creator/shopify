@@ -145,6 +145,8 @@ export default async function handler(req, res) {
         // 多文件处理：从lineItems中提取文件信息
         console.log('📁 检测到多文件上传，文件数量:', fileCount);
         
+        // 注意：多文件上传时，实际文件数据在前端已经处理，这里只是提取文件信息
+        // 实际的文件上传应该在多文件上传流程中完成
         for (let i = 1; i <= fileCount; i++) {
           const fileNameAttr = lineItems[0].customAttributes?.find(attr => attr.key === `文件${i}_名称`);
           if (fileNameAttr) {
@@ -157,6 +159,10 @@ export default async function handler(req, res) {
         }
         
         console.log('多文件信息:', allFilesInfo);
+        
+        // 对于多文件，我们需要检查是否有实际的文件数据需要上传
+        // 由于前端只发送了主文件的数据，其他文件信息只是名称
+        // 这里我们标记为已处理，但实际下载时需要特殊处理
       } else {
         // 单文件处理
         if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
@@ -229,6 +235,19 @@ export default async function handler(req, res) {
           key: `文件${index + 1}_类型`,
           value: fileInfo.type
         });
+        
+        // 对于多文件，我们需要标记这些文件为"需要特殊处理"
+        // 因为实际的文件数据可能没有上传到Shopify Files
+        if (fileCount > 1) {
+          baseAttributes.push({
+            key: `文件${index + 1}_ShopifyID`,
+            value: '未上传'
+          });
+          baseAttributes.push({
+            key: `文件${index + 1}_CDN链接`,
+            value: '未上传'
+          });
+        }
       });
       
       // 从前端lineItems中提取的详细参数，过滤掉Base64数据
