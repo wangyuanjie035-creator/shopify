@@ -132,111 +132,41 @@ export default async function handler(req, res) {
       
       console.log('使用的邮箱:', validEmail);
 
-      // 处理文件上传（支持多文件）
+      // 生成文件ID（在创建草稿订单之前）
+      // 如果有文件数据，先上传到Shopify Files
       let shopifyFileInfo = null;
       let fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      let allFilesInfo = [];
       
-      // 检查是否有多个文件（通过lineItems中的文件信息）
-      const fileCountAttr = lineItems.length > 0 ? lineItems[0].customAttributes?.find(attr => attr.key === '上传文件数量') : null;
-      const fileCount = fileCountAttr ? parseInt(fileCountAttr.value) : 1;
-      
-      // 检查是否有多个文件需要上传
-      if (req.body.allFiles && Array.isArray(req.body.allFiles) && req.body.allFiles.length > 1) {
-        console.log('📁 开始上传多个文件到Shopify Files...', req.body.allFiles.length, '个文件');
+      if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
+        console.log('📁 开始上传文件到Shopify Files...');
         
-        // 上传所有文件到Shopify Files
-        for (const fileInfo of req.body.allFiles) {
-          if (fileInfo.data && fileInfo.data.startsWith('data:')) {
-            try {
-              const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  fileData: fileInfo.data,
-                  fileName: fileInfo.name,
-                  fileType: fileInfo.type || 'application/octet-stream'
-                })
-              });
+        try {
+          const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              fileData: req.body.fileUrl,
+              fileName: fileName || 'model.stl',
+              fileType: 'application/octet-stream'
+            })
+          });
 
-              if (storeFileResponse.ok) {
-                const contentType = storeFileResponse.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                  const shopifyFileInfo = await storeFileResponse.json();
-                  allFilesInfo.push({
-                    index: allFilesInfo.length + 1,
-                    name: fileInfo.name,
-                    size: fileInfo.size,
-                    type: fileInfo.type,
-                    shopifyFileId: shopifyFileInfo.shopifyFileId,
-                    fileId: shopifyFileInfo.fileId,
-                    cdnUrl: shopifyFileInfo.cdnUrl
-                  });
-                  console.log('✅ 文件上传成功:', fileInfo.name, shopifyFileInfo);
-                } else {
-                  console.warn('⚠️ 文件上传API返回非JSON响应:', fileInfo.name);
-                }
-              } else {
-                console.warn('⚠️ 文件上传失败:', fileInfo.name, '状态码:', storeFileResponse.status);
-              }
-            } catch (uploadError) {
-              console.warn('⚠️ 文件上传异常:', fileInfo.name, uploadError.message);
-            }
-          }
-        }
-        
-        console.log('多文件上传完成:', allFilesInfo);
-      } else if (fileCount > 1 && lineItems.length > 0) {
-        // 兼容旧版本：从lineItems中提取文件信息（但实际文件可能没有上传）
-        console.log('📁 检测到多文件信息，但实际文件可能未上传，文件数量:', fileCount);
-        
-        for (let i = 1; i <= fileCount; i++) {
-          const fileNameAttr = lineItems[0].customAttributes?.find(attr => attr.key === `文件${i}_名称`);
-          if (fileNameAttr) {
-            allFilesInfo.push({
-              index: i,
-              name: fileNameAttr.value,
-              type: 'uploaded',
-              shopifyFileId: null,
-              cdnUrl: null
-            });
-          }
-        }
-        
-        console.log('多文件信息（兼容模式）:', allFilesInfo);
-      } else {
-        // 单文件处理
-        if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
-          console.log('📁 开始上传单个文件到Shopify Files...');
-          
-          try {
-            const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                fileData: req.body.fileUrl,
-                fileName: fileName || 'model.stl',
-                fileType: 'application/octet-stream'
-              })
-            });
-
-            if (storeFileResponse.ok) {
-              const contentType = storeFileResponse.headers.get('content-type');
-              if (contentType && contentType.includes('application/json')) {
-                shopifyFileInfo = await storeFileResponse.json();
-                fileId = shopifyFileInfo.fileId;
-                console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
-              } else {
-                console.warn('⚠️ 文件上传API返回非JSON响应，使用Base64存储');
-              }
+          if (storeFileResponse.ok) {
+            const contentType = storeFileResponse.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              shopifyFileInfo = await storeFileResponse.json();
+              fileId = shopifyFileInfo.fileId;
+              console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
             } else {
-              console.warn('⚠️ 文件上传到Shopify Files失败，状态码:', storeFileResponse.status, '使用Base64存储');
+              console.warn('⚠️ 文件上传API返回非JSON响应，使用Base64存储');
             }
-          } catch (uploadError) {
-            console.warn('⚠️ 文件上传到Shopify Files异常:', uploadError.message);
+          } else {
+            console.warn('⚠️ 文件上传到Shopify Files失败，状态码:', storeFileResponse.status, '使用Base64存储');
           }
+        } catch (uploadError) {
+          console.warn('⚠️ 文件上传到Shopify Files异常:', uploadError.message);
         }
       }
       
@@ -261,47 +191,8 @@ export default async function handler(req, res) {
         { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') },
-        { key: '上传文件数量', value: allFilesInfo.length > 0 ? allFilesInfo.length.toString() : '1' },
-        { key: '文件列表', value: allFilesInfo.length > 0 ? allFilesInfo.map(f => f.name).join(', ') : (fileName || 'model.stl') }
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
       ];
-      
-      // 添加每个文件的详细信息
-      allFilesInfo.forEach((fileInfo, index) => {
-        baseAttributes.push({
-          key: `文件${index + 1}_名称`,
-          value: fileInfo.name
-        });
-        baseAttributes.push({
-          key: `文件${index + 1}_类型`,
-          value: fileInfo.type || 'unknown'
-        });
-        
-        // 存储Shopify文件信息（如果有的话）
-        if (fileInfo.shopifyFileId) {
-          baseAttributes.push({
-            key: `文件${index + 1}_ShopifyID`,
-            value: fileInfo.shopifyFileId
-          });
-        } else {
-          baseAttributes.push({
-            key: `文件${index + 1}_ShopifyID`,
-            value: '未上传'
-          });
-        }
-        
-        if (fileInfo.cdnUrl) {
-          baseAttributes.push({
-            key: `文件${index + 1}_CDN链接`,
-            value: fileInfo.cdnUrl
-          });
-        } else {
-          baseAttributes.push({
-            key: `文件${index + 1}_CDN链接`,
-            value: '未上传'
-          });
-        }
-      });
       
       // 从前端lineItems中提取的详细参数，过滤掉Base64数据
       const frontendAttributes = lineItems.length > 0 && lineItems[0].customAttributes ? lineItems[0].customAttributes.filter(attr => {
