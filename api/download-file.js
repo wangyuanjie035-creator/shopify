@@ -39,7 +39,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { id } = req.query;
+    const { id, draftOrderId } = req.query;
+    
+    // 如果提供了draftOrderId，则获取多文件信息
+    if (draftOrderId) {
+      return await handleMultipleFilesDownload(req, res, draftOrderId);
+    }
+    
     if (!id) {
       return res.status(400).json({ error: 'Missing file ID' });
     }
@@ -132,6 +138,111 @@ export default async function handler(req, res) {
     return res.status(500).json({ 
       error: '文件下载失败', 
       details: error.message 
+    });
+  }
+}
+
+// 处理多文件下载
+async function handleMultipleFilesDownload(req, res, draftOrderId) {
+  try {
+    console.log('开始获取订单文件信息:', draftOrderId);
+
+    // 查询草稿订单信息
+    const getDraftOrderQuery = `
+      query($id: ID!) {
+        draftOrder(id: $id) {
+          id
+          name
+          email
+          lineItems(first: 10) {
+            edges {
+              node {
+                id
+                title
+                customAttributes {
+                  key
+                  value
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+    
+    const draftOrderResult = await shopGql(getDraftOrderQuery, {
+      id: draftOrderId
+    });
+    
+    if (!draftOrderResult.data.draftOrder) {
+      return res.status(404).json({ error: '未找到草稿订单' });
+    }
+    
+    const draftOrder = draftOrderResult.data.draftOrder;
+    const lineItem = draftOrder.lineItems.edges[0]?.node;
+    
+    if (!lineItem) {
+      return res.status(404).json({ error: '未找到订单项目' });
+    }
+
+    // 解析文件信息
+    const customAttributes = lineItem.customAttributes;
+    const files = [];
+    
+    // 获取文件数量
+    const fileCountAttr = customAttributes.find(attr => attr.key === '上传文件数量');
+    const fileCount = fileCountAttr ? parseInt(fileCountAttr.value) : 1;
+    
+    console.log('订单文件数量:', fileCount);
+    
+    // 解析每个文件的信息
+    for (let i = 1; i <= fileCount; i++) {
+      const fileNameAttr = customAttributes.find(attr => attr.key === `文件${i}_名称`);
+      
+      if (fileNameAttr) {
+        const fileInfo = {
+          index: i,
+          name: fileNameAttr.value,
+          downloadUrl: `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`
+        };
+        
+        files.push(fileInfo);
+        console.log(`文件${i}:`, fileInfo);
+      }
+    }
+    
+    // 如果没有找到多文件信息，尝试获取单文件信息（兼容旧版本）
+    if (files.length === 0) {
+      const fileNameAttr = customAttributes.find(attr => attr.key === '文件');
+      
+      if (fileNameAttr) {
+        const fileInfo = {
+          index: 1,
+          name: fileNameAttr.value,
+          downloadUrl: `${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/download-file?id=${encodeURIComponent(fileNameAttr.value)}`
+        };
+        
+        files.push(fileInfo);
+        console.log('单文件信息:', fileInfo);
+      }
+    }
+
+    // 返回结果
+    return res.json({
+      success: true,
+      draftOrderId: draftOrder.id,
+      draftOrderName: draftOrder.name,
+      customerEmail: draftOrder.email,
+      fileCount: files.length,
+      files: files,
+      message: `找到 ${files.length} 个文件`
+    });
+    
+  } catch (error) {
+    console.error('获取文件信息失败:', error);
+    return res.status(500).json({
+      error: '获取文件信息失败',
+      message: error.message
     });
   }
 }
