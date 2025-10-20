@@ -140,8 +140,9 @@ export default async function handler(req, res) {
     let orderInfo = null;
     let isCompleted = false;
     
-    // 如果草稿订单状态是COMPLETED，查找对应的正式订单
-    if (draftOrder.status === 'COMPLETED') {
+    // 检查草稿订单是否已完成（状态为COMPLETED或已转换为正式订单）
+    // 如果草稿订单有invoiceUrl且状态为COMPLETED，说明已转换为正式订单
+    if (draftOrder.status === 'COMPLETED' || (draftOrder.invoiceUrl && draftOrder.totalPrice > 0)) {
       isCompleted = true;
       
       // 通过订单号查找正式订单
@@ -149,7 +150,7 @@ export default async function handler(req, res) {
       
       const getOrderQuery = `
         query($query: String!) {
-          orders(first: 1, query: $query) {
+          orders(first: 10, query: $query) {
             edges {
               node {
                 id
@@ -182,12 +183,34 @@ export default async function handler(req, res) {
       `;
       
       try {
-        const orderResult = await shopGql(getOrderQuery, {
-          query: `name:${orderName}`
-        });
+        // 尝试多种查询方式
+        const queries = [
+          `name:${orderName}`,           // 按订单名称查询
+          `name:#${orderName}`,          // 带#号查询
+          `email:${draftOrder.email}`,   // 按邮箱查询最近的订单
+          `financial_status:paid`        // 查询已付款的订单
+        ];
         
-        if (orderResult.data.orders.edges.length > 0) {
-          orderInfo = orderResult.data.orders.edges[0].node;
+        for (const query of queries) {
+          console.log('尝试查询订单:', query);
+          const orderResult = await shopGql(getOrderQuery, { query });
+          
+          if (orderResult.data.orders.edges.length > 0) {
+            // 找到匹配的订单（优先匹配订单名称，其次匹配邮箱和金额）
+            const matchingOrder = orderResult.data.orders.edges.find(edge => {
+              const order = edge.node;
+              return order.name === orderName || 
+                     order.name === `#${orderName}` ||
+                     (order.email === draftOrder.email && 
+                      Math.abs(parseFloat(order.totalPrice) - parseFloat(draftOrder.totalPrice)) < 0.01);
+            });
+            
+            if (matchingOrder) {
+              orderInfo = matchingOrder.node;
+              console.log('✅ 找到匹配的正式订单:', orderInfo.name);
+              break;
+            }
+          }
         }
       } catch (orderError) {
         console.warn('查询正式订单失败:', orderError.message);
@@ -209,6 +232,12 @@ export default async function handler(req, res) {
       const financialStatus = orderInfo.financialStatus;
       const fulfillmentStatus = orderInfo.fulfillmentStatus;
       
+      console.log('订单状态分析:', {
+        financialStatus,
+        fulfillmentStatus,
+        totalPrice: orderInfo.totalPrice
+      });
+      
       if (financialStatus === 'PAID') {
         status = '已付款';
         statusCode = 'paid';
@@ -229,16 +258,28 @@ export default async function handler(req, res) {
       } else if (financialStatus === 'PENDING') {
         status = '待付款';
         statusCode = 'pending_payment';
+      } else if (financialStatus === 'PARTIALLY_PAID') {
+        status = '部分付款';
+        statusCode = 'partially_paid';
+        paidAt = orderInfo.processedAt || orderInfo.updatedAt;
       }
     } else {
-      // 草稿订单状态判断
-      const totalPrice = parseFloat(draftOrder.totalPrice || 0);
+      // 检查草稿订单是否已标记为已付款（通过customAttributes）
       const customStatus = draftOrder.lineItems.edges.length > 0 ? 
         draftOrder.lineItems.edges[0].node.customAttributes.find(attr => attr.key === '状态')?.value : null;
       
-      if (customStatus === '已报价' || totalPrice > 0) {
-        status = '已报价';
-        statusCode = 'quoted';
+      // 如果草稿订单状态显示已付款，但还没有转换为正式订单
+      if (customStatus === '已付款' || customStatus === '已发货') {
+        status = customStatus;
+        statusCode = customStatus === '已付款' ? 'paid' : 'fulfilled';
+      } else {
+        // 草稿订单状态判断
+        const totalPrice = parseFloat(draftOrder.totalPrice || 0);
+      
+        if (customStatus === '已报价' || totalPrice > 0) {
+          status = '已报价';
+          statusCode = 'quoted';
+        }
       }
     }
     
