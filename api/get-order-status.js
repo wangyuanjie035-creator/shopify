@@ -142,7 +142,8 @@ export default async function handler(req, res) {
     
     // 检查草稿订单是否已完成（状态为COMPLETED或已转换为正式订单）
     // 如果草稿订单有invoiceUrl且状态为COMPLETED，说明已转换为正式订单
-    if (draftOrder.status === 'COMPLETED' || (draftOrder.invoiceUrl && draftOrder.totalPrice > 0)) {
+    // 或者如果草稿订单有totalPrice > 0，说明已经报价，可能已转换为正式订单
+    if (draftOrder.status === 'COMPLETED' || (draftOrder.invoiceUrl && draftOrder.totalPrice > 0) || draftOrder.totalPrice > 0) {
       isCompleted = true;
       
       // 通过订单号查找正式订单
