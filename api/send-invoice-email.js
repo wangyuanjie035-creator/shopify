@@ -135,8 +135,8 @@ export default async function handler(req, res) {
     // ═══════════════════════════════════════════════════════════
     
     const sendInvoiceMutation = `
-      mutation draftOrderInvoiceSend($id: ID!, $input: DraftOrderInvoiceInput!) {
-        draftOrderInvoiceSend(id: $id, input: $input) {
+      mutation draftOrderInvoiceSend($id: ID!) {
+        draftOrderInvoiceSend(id: $id) {
           draftOrder {
             id
             name
@@ -151,10 +151,7 @@ export default async function handler(req, res) {
     `;
     
     const sendInvoiceResult = await shopGql(sendInvoiceMutation, {
-      id: draftOrderId,
-      input: {
-        customMessage: customMessage || `您的3D打印报价已完成，总金额：¥${draftOrder.totalPrice}。请点击链接查看详情并付款。如有疑问，请联系我们的客服团队。`
-      }
+      id: draftOrderId
     });
     
     if (sendInvoiceResult.data.draftOrderInvoiceSend.userErrors.length > 0) {
