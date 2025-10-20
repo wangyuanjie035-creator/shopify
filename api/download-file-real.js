@@ -116,7 +116,10 @@ export default async function handler(req, res) {
       // 设置响应头
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Length', downloadedSize);
-      res.setHeader('Content-Disposition', `attachment; filename="${file.alt || 'download'}"`);
+      
+      // 使用原始文件名，如果没有则使用alt字段
+      const originalFileName = file.alt || 'download';
+      res.setHeader('Content-Disposition', `attachment; filename="${originalFileName}"`);
       res.setHeader('X-Original-File-Size', file.originalFileSize);
       res.setHeader('X-Downloaded-File-Size', downloadedSize);
       res.setHeader('X-Size-Match', file.originalFileSize === downloadedSize ? 'true' : 'false');
