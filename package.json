@@ -1,0 +1,32 @@
+{
+  "name": "shopify-model-uploader",
+  "version": "1.0.0",
+  "description": "专业图纸上传系统 - 支持3D模型上传、预览和后台管理",
+  "main": "file-upload-api-example.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "shopify",
+    "3d-model",
+    "file-upload",
+    "stp",
+    "dxf",
+    "cnc",
+    "manufacturing"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "archiver": "^6.0.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

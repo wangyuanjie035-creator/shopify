@@ -23,6 +23,11 @@ function setCorsHeaders(req, res) {
 
   // 回显允许的来源，默认店铺域名
   const allow = allowedOrigins.has(origin) ? origin : 'https://sain-pdc-test.myshopify.com';
+  
+  // 强制允许所有来源（调试用，生产环境建议改回上面严格模式）
+  // res.setHeader('Access-Control-Allow-Origin', '*'); 
+  // 注意：当 Credentials 为 true 时，Allow-Origin 不能为 *。必须指定具体域名。
+  
   res.setHeader('Access-Control-Allow-Origin', allow);
   res.setHeader('Vary', 'Origin');
 
