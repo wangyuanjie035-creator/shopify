@@ -3,18 +3,26 @@ const { setCorsHeaders } = require('./_cors-config.js');
 // Helper to normalize Shopify domain
 function normalizeDomain(domain) {
   if (!domain) return null;
-  return domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  // Remove protocol, trailing slash, and whitespace
+  return domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+// Helper to normalize Token
+function normalizeToken(token) {
+  if (!token) return null;
+  return token.trim();
 }
 
 // Helper for Shopify GraphQL API
 async function shopGql(query, variables) {
   let storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
-  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+  let accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
 
-  // Normalize domain
+  // Normalize inputs
   storeDomain = normalizeDomain(storeDomain);
+  accessToken = normalizeToken(accessToken);
 
-  // Add .myshopify.com if missing (optional, but good for safety)
+  // Add .myshopify.com if missing
   if (storeDomain && !storeDomain.includes('.')) {
     storeDomain += '.myshopify.com';
   }
@@ -25,16 +33,7 @@ async function shopGql(query, variables) {
   });
 
   if (!storeDomain || !accessToken) {
-    const error = {
-      message: 'Missing Shopify credentials',
-      debug: {
-        hasDomain: !!storeDomain,
-        hasToken: !!accessToken,
-        envKeys: Object.keys(process.env).filter(k => k.includes('SHOP') || k.includes('TOKEN'))
-      }
-    };
-    console.error('❌ Credentials Error:', error);
-    throw new Error(JSON.stringify(error));
+    throw new Error('Missing Shopify credentials (SHOPIFY_STORE_DOMAIN or SHOPIFY_ACCESS_TOKEN)');
   }
 
   const endpoint = `https://${storeDomain}/admin/api/2024-01/graphql.json`;
@@ -61,8 +60,9 @@ async function shopGql(query, variables) {
     return json;
   } catch (error) {
     console.error('❌ Fetch Error:', error);
-    // Re-throw with more context
-    throw new Error(`Fetch failed: ${error.message} (Endpoint: ${endpoint})`);
+    // Attach endpoint to error for debugging (so client can see where we tried to connect)
+    error.endpoint = endpoint;
+    throw error;
   }
 }
 
@@ -167,7 +167,7 @@ async function getDraftOrders(req, res) {
             }
         });
     } catch (e) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, endpoint: e.endpoint });
     }
   }
 
@@ -212,7 +212,7 @@ async function getDraftOrders(req, res) {
           total: orders.length
       });
   } catch (e) {
-      return res.status(500).json({ error: e.message });
+      return res.status(500).json({ error: e.message, endpoint: e.endpoint });
   }
 }
 
@@ -279,7 +279,7 @@ async function submitQuote(req, res) {
             message: '询价提交成功'
         });
     } catch (e) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, endpoint: e.endpoint });
     }
 }
 
@@ -317,7 +317,7 @@ async function updateQuote(req, res) {
         return res.json({ success: true, message: '报价已更新' });
 
     } catch(e) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, endpoint: e.endpoint });
     }
 }
 
@@ -331,7 +331,7 @@ async function deleteDraftOrder(req, res) {
         await shopGql(mutation, { id: draftOrderId });
         return res.json({ success: true, message: 'Deleted' });
     } catch(e) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, endpoint: e.endpoint });
     }
 }
 
@@ -343,7 +343,7 @@ async function sendInvoice(req, res) {
         if (result.data.draftOrderInvoiceSend.userErrors.length) throw new Error(result.data.draftOrderInvoiceSend.userErrors[0].message);
         return res.json({ success: true, message: 'Invoice sent' });
     } catch(e) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, endpoint: e.endpoint });
     }
 }
 
@@ -354,7 +354,7 @@ async function completeDraftOrder(req, res) {
         await shopGql(mutation, { id: draftOrderId });
         return res.json({ success: true, message: 'Order completed' });
     } catch(e) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: e.message, endpoint: e.endpoint });
     }
 }
 
@@ -385,10 +385,11 @@ module.exports = async function handler(req, res) {
   } catch (e) {
       console.error(e);
       // Return explicit error details to the client for debugging
+      // IMPORTANT: We now include e.endpoint to see what URL fetch tried to access
       return res.status(500).json({ 
         error: 'Internal Server Error', 
         details: e.message,
-        // Only show this in development/debugging
+        endpoint: e.endpoint || 'unknown',
         debugInfo: {
           timestamp: new Date().toISOString()
         }
