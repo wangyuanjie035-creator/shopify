@@ -15,25 +15,24 @@ function setCorsHeaders(req, res) {
   const headerOrigin = req.headers.origin || '';
   const referer = req.headers.referer || '';
   let origin = headerOrigin;
+  
+  // 尝试从 Origin 或 Referer 获取请求来源
   if (!origin && referer) {
     try {
       origin = new URL(referer).origin;
     } catch {}
   }
 
-  // 回显允许的来源，默认店铺域名
-  const allow = allowedOrigins.has(origin) ? origin : 'https://sain-pdc-test.myshopify.com';
-  
-  // 强制允许所有来源（调试用，生产环境建议改回上面严格模式）
-  // res.setHeader('Access-Control-Allow-Origin', '*'); 
-  // 注意：当 Credentials 为 true 时，Allow-Origin 不能为 *。必须指定具体域名。
+  // 无论什么来源，都回显回去，以解决 preflight 问题
+  // 注意：这在生产环境可能过于宽松，但能有效解决 "No Access-Control-Allow-Origin header" 问题
+  const allow = origin || '*';
   
   res.setHeader('Access-Control-Allow-Origin', allow);
   res.setHeader('Vary', 'Origin');
 
   // 允许的动词与头
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS,DELETE,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '86400');
 }
