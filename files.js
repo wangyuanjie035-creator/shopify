@@ -1,4 +1,4 @@
-const { setCorsHeaders } = require('./cors-config.js');
+const { setCorsHeaders } = require('./_cors-config.js');
 
 const FILE_METAOBJECT_TYPE = 'uploaded_file';
 

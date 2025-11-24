@@ -1,4 +1,4 @@
-const { setCorsHeaders } = require('./cors-config.js');
+const { setCorsHeaders } = require('./_cors-config.js');
 
 // Helper for Shopify GraphQL API
 async function shopGql(query, variables) {
