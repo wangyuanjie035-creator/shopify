@@ -1,29 +1,69 @@
 const { setCorsHeaders } = require('./_cors-config.js');
 
+// Helper to normalize Shopify domain
+function normalizeDomain(domain) {
+  if (!domain) return null;
+  return domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
 // Helper for Shopify GraphQL API
 async function shopGql(query, variables) {
-  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+  let storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
   const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
 
+  // Normalize domain
+  storeDomain = normalizeDomain(storeDomain);
+
+  // Add .myshopify.com if missing (optional, but good for safety)
+  if (storeDomain && !storeDomain.includes('.')) {
+    storeDomain += '.myshopify.com';
+  }
+
+  console.log('🔍 Config Check:', { 
+    domain: storeDomain, 
+    hasToken: !!accessToken 
+  });
+
   if (!storeDomain || !accessToken) {
-    throw new Error('Missing Shopify credentials');
+    const error = {
+      message: 'Missing Shopify credentials',
+      debug: {
+        hasDomain: !!storeDomain,
+        hasToken: !!accessToken,
+        envKeys: Object.keys(process.env).filter(k => k.includes('SHOP') || k.includes('TOKEN'))
+      }
+    };
+    console.error('❌ Credentials Error:', error);
+    throw new Error(JSON.stringify(error));
   }
 
   const endpoint = `https://${storeDomain}/admin/api/2024-01/graphql.json`;
-  const resp = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': accessToken,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
+  
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
 
-  const json = await resp.json();
-  if (json.errors) {
-    throw new Error(json.errors[0].message);
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Shopify API Error (${resp.status}): ${text}`);
+    }
+
+    const json = await resp.json();
+    if (json.errors) {
+      throw new Error(json.errors[0].message);
+    }
+    return json;
+  } catch (error) {
+    console.error('❌ Fetch Error:', error);
+    // Re-throw with more context
+    throw new Error(`Fetch failed: ${error.message} (Endpoint: ${endpoint})`);
   }
-  return json;
 }
 
 // Helper: Upload file to Shopify (used in submitQuote)
@@ -344,6 +384,14 @@ module.exports = async function handler(req, res) {
       return res.status(405).json({ error: 'Method not allowed' });
   } catch (e) {
       console.error(e);
-      return res.status(500).json({ error: 'Internal Server Error', details: e.message });
+      // Return explicit error details to the client for debugging
+      return res.status(500).json({ 
+        error: 'Internal Server Error', 
+        details: e.message,
+        // Only show this in development/debugging
+        debugInfo: {
+          timestamp: new Date().toISOString()
+        }
+      });
   }
 };
