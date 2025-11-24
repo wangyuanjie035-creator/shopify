@@ -1,0 +1,15 @@
+{
+  "functions": {
+    "api/orders.js": {
+      "maxDuration": 20
+    },
+    "api/files.js": {
+      "maxDuration": 15
+    }
+  },
+  "routes": [
+    { "src": "/api/orders", "dest": "/api/orders.js" },
+    { "src": "/api/files", "dest": "/api/files.js" },
+    { "src": "/api/cors-config", "dest": "/api/cors-config.js" }
+  ]
+}
