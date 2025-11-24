@@ -2,7 +2,6 @@
   "name": "shopify-model-uploader",
   "version": "1.0.0",
   "description": "专业图纸上传系统 - 支持3D模型上传、预览和后台管理",
-  "main": "file-upload-api-example.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -27,6 +26,7 @@
     "nodemon": "^3.0.2"
   },
   "engines": {
-    "node": "18.x"
+    "node": "22.x"
   }
 }
+

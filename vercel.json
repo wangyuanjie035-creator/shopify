@@ -1,10 +1,12 @@
 {
   "functions": {
     "api/orders.js": {
-      "maxDuration": 20
+      "maxDuration": 20,
+      "runtime": "nodejs22.x"
     },
     "api/files.js": {
-      "maxDuration": 15
+      "maxDuration": 15,
+      "runtime": "nodejs22.x"
     }
   },
   "routes": [
@@ -13,3 +15,4 @@
     { "src": "/api/cors-config", "dest": "/api/cors-config.js" }
   ]
 }
+
