@@ -1,7 +1,0 @@
-{
-  "name": "shopify-quotes-backend",
-  "private": true,
-  "type": "module",
-  "engines": { "node": ">=18" },
-  "license": "MIT"
-}
