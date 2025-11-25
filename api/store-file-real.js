@@ -1,4 +1,3 @@
-import { Blob } from 'buffer';
 import { setCorsHeaders } from './cors-config.js';
 
 /**
@@ -125,18 +124,15 @@ export default async function handler(req, res) {
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-        body: formData,
-        duplex: 'half'
+        body: formData
       });
 
       if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText, errorText);
+        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText);
         return res.status(500).json({
           success: false,
           message: '文件上传到临时地址失败',
-          error: `${uploadResponse.status} - ${uploadResponse.statusText}`,
-          details: errorText
+          error: `${uploadResponse.status} - ${uploadResponse.statusText}`
         });
       }
 
