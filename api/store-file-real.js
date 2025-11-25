@@ -1,4 +1,4 @@
-import FormData from 'form-data';
+import { Blob } from 'buffer';
 import { setCorsHeaders } from './cors-config.js';
 
 /**
@@ -120,17 +120,14 @@ export default async function handler(req, res) {
       });
       
       // 添加文件
-      formData.append('file', fileBuffer, {
-        filename: fileName,
-        contentType: fileType || 'application/octet-stream'
-      });
-
-      const uploadHeaders = formData.getHeaders();
-      uploadHeaders['x-goog-content-sha256'] = 'UNSIGNED-PAYLOAD';
+      const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
+      formData.append('file', blob, fileName);
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-        headers: uploadHeaders,
+        headers: {
+          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
+        },
         body: formData,
         duplex: 'half'
       });
