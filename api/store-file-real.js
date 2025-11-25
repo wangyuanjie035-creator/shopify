@@ -125,9 +125,7 @@ export default async function handler(req, res) {
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-        headers: {
-          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
-        },
+       
         body: formData,
         duplex: 'half'
       });
