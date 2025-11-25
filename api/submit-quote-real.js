@@ -137,12 +137,12 @@ export default async function handler(req, res) {
       // 处理文件上传（仅单文件）
       let shopifyFileInfo = null;
       let fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
+      const API_BASE_URL = process.env.API_BASE_URL;
       // 单文件处理
       if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
         console.log('📁 开始上传单个文件到Shopify Files...');
         try {
-          const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
+          const storeFileResponse = await fetch(`${API_BASE_URL || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
