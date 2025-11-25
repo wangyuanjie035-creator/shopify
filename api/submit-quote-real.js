@@ -9,9 +9,7 @@
  * - 客户提交询价请求
  * - 创建真实的Shopify Draft Order
  * - 返回可被管理端查询的Draft Order ID
- */
-
-/**
+ * 
  * 请求示例：
  * POST /api/submit-quote-real
  * {
@@ -134,13 +132,14 @@ export default async function handler(req, res) {
       
       console.log('使用的邮箱:', validEmail);
 
-      // 处理文件上传（仅单文件）
+      // 生成文件ID（在创建草稿订单之前）
+      // 如果有文件数据，先上传到Shopify Files
       let shopifyFileInfo = null;
       let fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // 单文件处理
+      
       if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
-        console.log('📁 开始上传单个文件到Shopify Files...');
+        console.log('📁 开始上传文件到Shopify Files...');
+        
         try {
           const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
             method: 'POST',
@@ -158,16 +157,40 @@ export default async function handler(req, res) {
             const contentType = storeFileResponse.headers.get('content-type');
             if (contentType && contentType.includes('application/json')) {
               shopifyFileInfo = await storeFileResponse.json();
-              fileId = shopifyFileInfo.fileId;
-              console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
+              if (shopifyFileInfo.success) {
+                fileId = shopifyFileInfo.fileId;
+                console.log('✅ 文件上传到Shopify Files成功:', {
+                  fileId: shopifyFileInfo.fileId,
+                  fileName: shopifyFileInfo.fileName,
+                  fileUrl: shopifyFileInfo.fileUrl,
+                  originalFileSize: shopifyFileInfo.originalFileSize,
+                  uploadedFileSize: shopifyFileInfo.uploadedFileSize,
+                  sizeMatch: shopifyFileInfo.sizeMatch
+                });
+              } else {
+                console.error('❌ 文件上传API返回失败:', shopifyFileInfo);
+              }
             } else {
-              console.warn('⚠️ 文件上传API返回非JSON响应，使用Base64存储');
+              const errorText = await storeFileResponse.text().catch(() => '无法读取响应');
+              console.error('❌ 文件上传API返回非JSON响应:', {
+                status: storeFileResponse.status,
+                contentType: contentType,
+                errorText: errorText.substring(0, 500)
+              });
             }
           } else {
-            console.warn('⚠️ 文件上传到Shopify Files失败，状态码:', storeFileResponse.status, '使用Base64存储');
+            const errorText = await storeFileResponse.text().catch(() => '无法读取错误响应');
+            console.error('❌ 文件上传到Shopify Files失败:', {
+              status: storeFileResponse.status,
+              statusText: storeFileResponse.statusText,
+              errorText: errorText.substring(0, 500)
+            });
           }
         } catch (uploadError) {
-          console.warn('⚠️ 文件上传到Shopify Files异常:', uploadError.message);
+          console.error('❌ 文件上传到Shopify Files异常:', {
+            message: uploadError.message,
+            stack: uploadError.stack?.substring(0, 500)
+          });
         }
       }
       
@@ -194,7 +217,6 @@ export default async function handler(req, res) {
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
         { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
       ];
-
       
       // 从前端lineItems中提取的详细参数，过滤掉Base64数据
       const frontendAttributes = lineItems.length > 0 && lineItems[0].customAttributes ? lineItems[0].customAttributes.filter(attr => {
