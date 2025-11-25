@@ -1,5 +1,8 @@
 import { setCorsHeaders } from './cors-config.js';
-import FormData from 'form-data';
+import { FormData } from 'formdata-node';
+import { fileFromBuffer } from 'formdata-node/file-from-path';
+import { FormDataEncoder } from 'form-data-encoder';
+import { Readable } from 'node:stream';
 
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -120,15 +123,16 @@ export default async function handler(req, res) {
       });
       
       // 添加文件
-      formData.append('file', fileBuffer, {
-        filename: fileName,
-        contentType: fileType || 'application/octet-stream'
-      });
+      const file = await fileFromBuffer(fileBuffer, fileName, fileType || 'application/octet-stream');
+      formData.append('file', file);
+
+      const encoder = new FormDataEncoder(formData);
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-        body: formData,
-        headers: formData.getHeaders()
+        headers: encoder.headers,
+        body: Readable.from(encoder.encode()),
+        duplex: 'half'
       });
 
       if (!uploadResponse.ok) {
