@@ -111,40 +111,20 @@ export default async function handler(req, res) {
       console.log('✅ Staged Upload创建成功');
 
       // 步骤2: 上传文件到临时地址
-      // 在Node.js环境中，需要手动构建multipart/form-data
-      const boundary = `----WebKitFormBoundary${Math.random().toString(36).substring(2, 15)}`;
-      const formDataParts = [];
+      const formData = new FormData();
       
       // 添加参数
       stagedTarget.parameters.forEach(param => {
-        formDataParts.push(
-          `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="${param.name}"\r\n\r\n` +
-          `${param.value}\r\n`
-        );
+        formData.append(param.name, param.value);
       });
       
       // 添加文件
-      formDataParts.push(
-        `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-        `Content-Type: ${fileType || 'application/octet-stream'}\r\n\r\n`
-      );
-      
-      // 构建完整的multipart body
-      const formDataBuffer = Buffer.concat([
-        Buffer.from(formDataParts.join(''), 'utf-8'),
-        fileBuffer,
-        Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8')
-      ]);
+      const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
+      formData.append('file', blob, fileName);
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-        headers: {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': formDataBuffer.length.toString()
-        },
-        body: formDataBuffer
+        body: formData
       });
 
       if (!uploadResponse.ok) {

@@ -185,7 +185,7 @@ export default async function handler(req, res) {
     }
     
     const updateInput = {
-      taxExempt: true,
+      taxExempt: true, // 免除税费，确保价格准确
       lineItems: [{
         title: currentLineItem.title,
         quantity: currentLineItem.quantity,
