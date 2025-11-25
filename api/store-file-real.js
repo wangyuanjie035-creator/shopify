@@ -1,4 +1,5 @@
 import { setCorsHeaders } from './cors-config.js';
+import FormData from 'form-data';
 
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -119,20 +120,25 @@ export default async function handler(req, res) {
       });
       
       // 添加文件
-      const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
-      formData.append('file', blob, fileName);
+      formData.append('file', fileBuffer, {
+        filename: fileName,
+        contentType: fileType || 'application/octet-stream'
+      });
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-        body: formData
+        body: formData,
+        headers: formData.getHeaders()
       });
 
       if (!uploadResponse.ok) {
-        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText);
+        const errorText = await uploadResponse.text();
+        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText, errorText);
         return res.status(500).json({
           success: false,
           message: '文件上传到临时地址失败',
-          error: `${uploadResponse.status} - ${uploadResponse.statusText}`
+          error: `${uploadResponse.status} - ${uploadResponse.statusText}`,
+          details: errorText
         });
       }
 
