@@ -126,14 +126,13 @@ export default async function handler(req, res) {
       });
 
       const uploadHeaders = formData.getHeaders();
-      const uploadBuffer = formData.getBuffer();
-      uploadHeaders['Content-Length'] = uploadBuffer.length;
       uploadHeaders['x-goog-content-sha256'] = 'UNSIGNED-PAYLOAD';
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
         headers: uploadHeaders,
-        body: uploadBuffer
+        body: formData,
+        duplex: 'half'
       });
 
       if (!uploadResponse.ok) {
