@@ -125,7 +125,6 @@ export default async function handler(req, res) {
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
-       
         body: formData,
         duplex: 'half'
       });
