@@ -2,6 +2,23 @@
  * 简化版获取 Draft Order API - 避免权限问题
  */
 
+// 抑制 url.parse() 弃用警告 (DEP0169)
+// 这个警告来自 Node.js 内部或依赖，不影响功能
+if (typeof process !== 'undefined' && process.emitWarning) {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = function(warning, ...args) {
+    if (
+      typeof warning === 'string' && 
+      (warning.includes('url.parse()') || warning.includes('DEP0169'))
+    ) {
+      // 抑制这个特定的警告
+      return;
+    }
+    // 其他警告正常显示
+    return originalEmitWarning.call(process, warning, ...args);
+  };
+}
+
 // 辅助函数：调用 Shopify GraphQL API
 async function shopGql(query, variables) {
   const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
