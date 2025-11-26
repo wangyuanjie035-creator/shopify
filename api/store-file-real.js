@@ -113,29 +113,36 @@ export default async function handler(req, res) {
       console.log('✅ Staged Upload创建成功');
 
       // 步骤2: 上传文件到临时地址
-      const formData = new FormData();
-      
-      // 添加参数
-      stagedTarget.parameters.forEach(param => {
-        formData.append(param.name, param.value);
-      });
-      
-      // 添加文件（使用原始Buffer，保持签名一致）
-      formData.append('file', fileBuffer, {
-        filename: fileName,
-        contentType: fileType || 'application/octet-stream'
-      });
-
-      const uploadHeaders = formData.getHeaders();
-      const uploadBuffer = formData.getBuffer();
-      uploadHeaders['Content-Length'] = uploadBuffer.length;
-      uploadHeaders['x-goog-content-sha256'] = 'UNSIGNED-PAYLOAD';
-
-      const uploadResponse = await fetch(stagedTarget.url, {
-        method: 'POST',
-        headers: uploadHeaders,
-        body: uploadBuffer
-      });
+      let uploadResponse;
+      if (Array.isArray(stagedTarget.parameters) && stagedTarget.parameters.length > 0) {
+        const formData = new FormData();
+        stagedTarget.parameters.forEach(param => {
+          formData.append(param.name, param.value);
+        });
+        formData.append('file', fileBuffer, {
+          filename: fileName,
+          contentType: fileType || 'application/octet-stream'
+        });
+        const uploadHeaders = formData.getHeaders();
+        const uploadBuffer = formData.getBuffer();
+        uploadHeaders['Content-Length'] = uploadBuffer.length;
+        uploadHeaders['x-goog-content-sha256'] = 'UNSIGNED-PAYLOAD';
+        uploadResponse = await fetch(stagedTarget.url, {
+          method: 'POST',
+          headers: uploadHeaders,
+          body: uploadBuffer
+        });
+      } else {
+        uploadResponse = await fetch(stagedTarget.url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': fileType || 'application/octet-stream',
+            'Content-Length': fileBuffer.length,
+            'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
+          },
+          body: fileBuffer
+        });
+      }
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
