@@ -1,23 +1,8 @@
 // Vercel 文件下载 API
 // 用于下载已上传的文件
+// Vercel 文件下载 API
+// 用于下载已上传的文件
 import { setCorsHeaders } from './cors-config.js';
-
-// 抑制 url.parse() 弃用警告 (DEP0169)
-// 这个警告来自 Node.js 内部或依赖，不影响功能
-if (typeof process !== 'undefined' && process.emitWarning) {
-  const originalEmitWarning = process.emitWarning;
-  process.emitWarning = function(warning, ...args) {
-    if (
-      typeof warning === 'string' && 
-      (warning.includes('url.parse()') || warning.includes('DEP0169'))
-    ) {
-      // 抑制这个特定的警告
-      return;
-    }
-    // 其他警告正常显示
-    return originalEmitWarning.call(process, warning, ...args);
-  };
-}
 
 const FILE_METAOBJECT_TYPE = 'uploaded_file';
 
@@ -58,18 +43,14 @@ export default async function handler(req, res) {
   try {
     const { id, shopifyFileId, fileName: requestedFileName } = req.query;
     
-    // 优先使用shopifyFileId，如果提供了则直接通过Shopify Files下载
-    if (shopifyFileId && shopifyFileId !== '未上传' && shopifyFileId.startsWith('gid://')) {
-      console.log('✅ 使用Shopify文件ID下载:', shopifyFileId);
+    // 如果提供了shopifyFileId，则通过Shopify Files下载
+    if (shopifyFileId) {
       return await handleShopifyFileDownload(req, res, shopifyFileId, requestedFileName);
     }
     
     if (!id) {
       return res.status(400).json({ error: 'Missing file ID' });
     }
-    
-    // 如果只有id，尝试从Metaobject中查找shopifyFileId
-    console.log('🔍 通过文件ID查找Metaobject:', id);
 
     // 查询存储在 Metaobject 中的文件记录
     const query = `
@@ -131,26 +112,12 @@ export default async function handler(req, res) {
     const fileType = getField('file_type') || 'application/octet-stream';
     const fileData = getField('file_data');
     const fileUrlCdn = getField('file_url');
-    const shopifyFileIdFromMeta = getField('shopify_file_id');
     
-    console.log('文件记录:', { 
-      id, 
-      fileName, 
-      fileType, 
-      fileUrlCdn, 
-      shopifyFileId: shopifyFileIdFromMeta,
-      hasFileData: !!fileData 
-    });
-
-    // 优先使用Shopify文件ID下载（最可靠的方式）
-    if (shopifyFileIdFromMeta && shopifyFileIdFromMeta.startsWith('gid://')) {
-      console.log('✅ 从Metaobject获取Shopify文件ID，使用Shopify Files下载');
-      return await handleShopifyFileDownload(req, res, shopifyFileIdFromMeta, fileName);
-    }
+    console.log('文件记录:', { id, fileName, fileType, fileUrlCdn, hasFileData: !!fileData });
 
     // 如果有 Shopify Files 的 URL，则直接重定向
     if (fileUrlCdn && (fileUrlCdn.startsWith('http://') || fileUrlCdn.startsWith('https://'))) {
-      console.log('✅ 重定向到 Shopify CDN:', fileUrlCdn);
+      console.log('重定向到 Shopify CDN:', fileUrlCdn);
       res.writeHead(302, { Location: fileUrlCdn });
       return res.end();
     }
@@ -223,10 +190,8 @@ async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
     console.log('文件URL获取成功:', fileUrl);
 
     // 设置下载头并重定向到文件URL
-    // 在 Vercel Serverless Functions 中使用 writeHead 而不是 redirect
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName || 'download')}"`);
-    res.writeHead(302, { Location: fileUrl });
-    return res.end();
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'download'}"`);
+    return res.redirect(302, fileUrl);
 
   } catch (error) {
     console.error('Shopify文件下载失败:', error);
