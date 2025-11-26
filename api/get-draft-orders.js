@@ -239,6 +239,9 @@ export default async function handler(req, res) {
         }
       }
 
+      // 如果有 Shopify 文件ID，则优先用它作为前端展示和下载用的文件ID
+      const effectiveFileId = shopifyFileId || fileId;
+
       return {
         id: order.id,
         name: order.name,
@@ -248,8 +251,8 @@ export default async function handler(req, res) {
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
         invoiceUrl: order.invoiceUrl || 'data:stored',
-        fileId: fileId, // 添加文件ID
-        shopifyFileId: shopifyFileId, // 添加Shopify文件ID（优先使用）
+        fileId: effectiveFileId, // 前端主用文件ID（优先使用Shopify文件ID）
+        shopifyFileId: shopifyFileId, // 额外返回Shopify文件ID
         fileData: fileData, // 添加文件数据
         note: order.note, // 添加note字段
         lineItems: order.lineItems.edges.map(itemEdge => ({
