@@ -29,6 +29,58 @@ async function shopGql(query, variables) {
   return json;
 }
 
+// 辅助函数：根据本地 file_ 开头的文件ID，在 DraftOrder 的自定义属性中查找 Shopify 文件ID
+async function findShopifyFileIdByLocalId(localFileId) {
+  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+
+  if (!storeDomain || !accessToken) {
+    throw new Error('Missing SHOPIFY_STORE_DOMAIN/SHOP or SHOPIFY_ACCESS_TOKEN/ADMIN_TOKEN');
+  }
+
+  const query = `
+    query getDraftOrdersForFile($first: Int!) {
+      draftOrders(first: $first) {
+        edges {
+          node {
+            id
+            lineItems(first: 10) {
+              edges {
+                node {
+                  id
+                  customAttributes {
+                    key
+                    value
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const result = await shopGql(query, { first: 100 });
+  const edges = result?.data?.draftOrders?.edges || [];
+
+  for (const edge of edges) {
+    const lineItems = edge.node?.lineItems?.edges || [];
+    for (const li of lineItems) {
+      const attrs = li.node?.customAttributes || [];
+      const fileIdAttr = attrs.find(a => a.key === '文件ID');
+      if (fileIdAttr && fileIdAttr.value === localFileId) {
+        const shopifyFileIdAttr = attrs.find(a => a.key === 'Shopify文件ID' || a.key === 'shopifyFileId');
+        if (shopifyFileIdAttr && shopifyFileIdAttr.value && shopifyFileIdAttr.value !== '未上传') {
+          return shopifyFileIdAttr.value;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req, res) {
   setCorsHeaders(req, res);
   
@@ -46,6 +98,21 @@ export default async function handler(req, res) {
     // 兼容旧前端：如果没有显式提供 shopifyFileId，但 id 是 Shopify 文件的 GID，则将其视为 shopifyFileId
     if (!shopifyFileId && typeof id === 'string' && id.startsWith('gid://shopify/File/')) {
       shopifyFileId = id;
+    }
+
+    // 如果还没有 shopifyFileId，但 id 是我们生成的本地 file_ 开头的ID，尝试从 DraftOrder 自身的 customAttributes 中反查
+    if (!shopifyFileId && typeof id === 'string' && id.startsWith('file_')) {
+      try {
+        console.log('🔍 通过 DraftOrder 自定义属性查找 Shopify 文件ID, 本地ID:', id);
+        shopifyFileId = await findShopifyFileIdByLocalId(id);
+        if (shopifyFileId) {
+          console.log('✅ 通过 DraftOrder 找到 Shopify 文件ID:', shopifyFileId);
+        } else {
+          console.warn('⚠️ 通过 DraftOrder 未找到对应的 Shopify 文件ID');
+        }
+      } catch (lookupErr) {
+        console.warn('⚠️ DraftOrder 反查 Shopify 文件ID 失败:', lookupErr.message);
+      }
     }
     
     // 如果提供了shopifyFileId，则通过Shopify Files下载
