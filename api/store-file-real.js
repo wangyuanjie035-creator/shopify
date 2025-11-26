@@ -128,6 +128,7 @@ export default async function handler(req, res) {
       console.log('✅ Staged Upload创建成功');
 
       // 步骤2: 上传文件到临时地址
+      // Node.js 18+ 支持全局 FormData 和 Blob
       const formData = new FormData();
       
       // 添加参数
@@ -135,14 +136,27 @@ export default async function handler(req, res) {
         formData.append(param.name, param.value);
       });
       
-      // 添加文件
-      const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
-      formData.append('file', blob, fileName);
+      // 添加文件（Node.js 18+ FormData 支持 Blob）
+      const fileBlob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
+      formData.append('file', fileBlob, fileName);
 
       const uploadResponse = await fetch(stagedTarget.url, {
         method: 'POST',
         body: formData
       });
+
+      if (!uploadResponse.ok) {
+        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText);
+        const errorText = await uploadResponse.text().catch(() => '');
+        console.error('❌ 错误详情:', errorText.substring(0, 500));
+        return res.status(500).json({
+          success: false,
+          message: '文件上传到临时地址失败',
+          error: `${uploadResponse.status} - ${uploadResponse.statusText}`
+        });
+      }
+
+      console.log('✅ 文件上传到临时地址成功');
 
       if (!uploadResponse.ok) {
         console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText);
