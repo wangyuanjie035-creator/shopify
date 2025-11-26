@@ -35,8 +35,6 @@
 
 import { setCorsHeaders } from './cors-config.js';
 
-const API_BASE_URL = process.env.API_BASE_URL || 'https://shopify-13s4.vercel.app';
-
 export default async function handler(req, res) {
   // 设置CORS头
   setCorsHeaders(req, res);
@@ -139,12 +137,12 @@ export default async function handler(req, res) {
       // 处理文件上传（仅单文件）
       let shopifyFileInfo = null;
       let fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
       // 单文件处理
       if (req.body.fileUrl && req.body.fileUrl.startsWith('data:')) {
-        console.log('使用的API_BASE_URL:', API_BASE_URL);
         console.log('📁 开始上传单个文件到Shopify Files...');
         try {
-          const storeFileResponse = await fetch(`${API_BASE_URL}/api/store-file-real`, {
+          const storeFileResponse = await fetch(`${req.headers.origin || 'https://shopify-13s4.vercel.app'}/api/store-file-real`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -183,24 +181,17 @@ export default async function handler(req, res) {
       }
 
       // 构建customAttributes
-      const normalizeValue = (value, fallback = '') => {
-        if (value === null || value === undefined) {
-          return fallback;
-        }
-        return String(value);
-      };
-
       const baseAttributes = [
         // 基本参数
-        { key: '材料', value: normalizeValue(material, '未提供') },
-        { key: '颜色', value: normalizeValue(color, '未提供') },
-        { key: '精度', value: normalizeValue(precision, '未提供') },
-        { key: '文件', value: normalizeValue(fileName || 'model.stl') },
-        { key: '文件ID', value: normalizeValue(fileId, '未生成') },
-        { key: '询价单号', value: normalizeValue(quoteId) },
-        { key: 'Shopify文件ID', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileId : null, '未上传') },
+        { key: '材料', value: material },
+        { key: '颜色', value: color },
+        { key: '精度', value: precision },
+        { key: '文件', value: fileName || 'model.stl' },
+        { key: '文件ID', value: fileId },
+        { key: '询价单号', value: quoteId },
+        { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
-        { key: '原始文件大小', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.originalFileSize : null, '未知') },
+        { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
         { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
       ];
 
@@ -224,10 +215,7 @@ export default async function handler(req, res) {
       console.log('- 前端参数数量:', frontendAttributes.length);
       console.log('- 前端参数详情:', frontendAttributes);
       
-      const allAttributes = [...baseAttributes, ...frontendAttributes].map(attr => ({
-        key: attr.key,
-        value: normalizeValue(attr.value, '')
-      }));
+      const allAttributes = [...baseAttributes, ...frontendAttributes];
       console.log('- 总参数数量:', allAttributes.length);
       
       // 准备输入数据
