@@ -61,8 +61,17 @@ export default async function handler(req, res) {
     query: req.query
   });
 
-  // 设置CORS头
-  setCorsHeaders(req, res);
+  // 设置CORS头（添加错误处理，确保不影响handler执行）
+  try {
+    setCorsHeaders(req, res);
+  } catch (corsError) {
+    console.warn('⚠️ CORS设置失败（非致命）:', corsError.message);
+    // 即使CORS设置失败，也继续执行，设置基本的CORS头
+    res.setHeader('Access-Control-Allow-Origin', 'https://sain-pdc-test.myshopify.com');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
