@@ -1,5 +1,3 @@
-import { Blob } from 'buffer';
-import FormData from 'form-data';
 import { setCorsHeaders } from './cors-config.js';
 
 /**
@@ -110,69 +108,31 @@ export default async function handler(req, res) {
       }
 
       const stagedTarget = stagedUploadData.data.stagedUploadsCreate.stagedTargets[0];
-      console.log('✅ Staged Upload创建成功:', stagedTarget);
+      console.log('✅ Staged Upload创建成功');
 
       // 步骤2: 上传文件到临时地址
-      const parameters = Array.isArray(stagedTarget.parameters) ? stagedTarget.parameters : [];
-      const hasPolicy = parameters.some(param => param.name === 'policy');
+      const formData = new FormData();
+      
+      // 添加参数
+      stagedTarget.parameters.forEach(param => {
+        formData.append(param.name, param.value);
+      });
+      
+      // 添加文件
+      const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
+      formData.append('file', blob, fileName);
 
-      let uploadResponse;
-      if (hasPolicy) {
-        // S3 风格：需要 multipart/form-data，包含 policy/signature 等字段
-        const boundary = `----formdata-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const parts = [];
-        
-        parameters.forEach(param => {
-          parts.push(`--${boundary}\r\n`);
-          parts.push(`Content-Disposition: form-data; name="${param.name}"\r\n\r\n`);
-          parts.push(`${param.value}\r\n`);
-        });
-        
-        parts.push(`--${boundary}\r\n`);
-        parts.push(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`);
-        parts.push(`Content-Type: ${fileType || 'application/octet-stream'}\r\n\r\n`);
-        
-        const textParts = parts.join('');
-        const textBuffer = Buffer.from(textParts, 'utf8');
-        const fileEnding = Buffer.from('\r\n', 'utf8');
-        const endBoundary = Buffer.from(`--${boundary}--\r\n`, 'utf8');
-        const uploadBuffer = Buffer.concat([textBuffer, fileBuffer, fileEnding, endBoundary]);
-
-        const uploadHeaders = {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': uploadBuffer.length.toString(),
-          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
-        };
-        
-        uploadResponse = await fetch(stagedTarget.url, {
-          method: 'POST',
-          headers: uploadHeaders,
-          body: uploadBuffer
-        });
-      } else {
-        // GCS Signed URL 场景：Shopify 预签名中已包含所有必要信息，只允许 POST/PUT 原始文件
-        const contentTypeParam = parameters.find(param => param.name === 'content_type');
-        const method = 'POST';
-        const headers = {
-          'Content-Type': contentTypeParam ? contentTypeParam.value : (fileType || 'application/octet-stream'),
-          'Content-Length': fileBuffer.length.toString(),
-          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
-        };
-        uploadResponse = await fetch(stagedTarget.url, {
-          method,
-          headers,
-          body: fileBuffer
-        });
-      }
+      const uploadResponse = await fetch(stagedTarget.url, {
+        method: 'POST',
+        body: formData
+      });
 
       if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText, errorText);
+        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText);
         return res.status(500).json({
           success: false,
           message: '文件上传到临时地址失败',
-          error: `${uploadResponse.status} - ${uploadResponse.statusText}`,
-          details: errorText
+          error: `${uploadResponse.status} - ${uploadResponse.statusText}`
         });
       }
 
