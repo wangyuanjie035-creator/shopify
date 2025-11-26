@@ -208,6 +208,65 @@ export default async function handler(req, res) {
       // 生成文件ID
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+      // 步骤4: 创建 uploaded_file Metaobject 存储文件元数据（根据文档要求）
+      try {
+        const metaobjectCreateMutation = `
+          mutation metaobjectCreate($metaobject: MetaobjectCreateInput!) {
+            metaobjectCreate(metaobject: $metaobject) {
+              metaobject {
+                id
+                handle
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const metaobjectResult = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': accessToken
+          },
+          body: JSON.stringify({
+            query: metaobjectCreateMutation,
+            variables: {
+              metaobject: {
+                type: 'uploaded_file',
+                fields: [
+                  { key: 'file_id', value: fileId },
+                  { key: 'file_name', value: fileName },
+                  { key: 'file_type', value: fileType || 'application/octet-stream' },
+                  { key: 'file_data', value: '' }, // 已废弃，不再存储Base64
+                  { key: 'file_url', value: fileRecord.url || '' },
+                  { key: 'shopify_file_id', value: fileRecord.id },
+                  { key: 'file_size', value: fileSize.toString() },
+                  { key: 'upload_time', value: new Date().toISOString() }
+                ]
+              }
+            }
+          })
+        });
+
+        const metaobjectData = await metaobjectResult.json();
+        
+        if (metaobjectData.errors || (metaobjectData.data?.metaobjectCreate?.userErrors?.length > 0)) {
+          console.warn('⚠️ uploaded_file Metaobject创建失败（非致命）:', 
+            metaobjectData.errors || metaobjectData.data.metaobjectCreate.userErrors);
+        } else {
+          console.log('✅ uploaded_file Metaobject创建成功:', metaobjectData.data.metaobjectCreate.metaobject.id);
+        }
+      } catch (metaError) {
+        // Metaobject创建失败不影响文件上传成功
+        console.warn('⚠️ uploaded_file Metaobject创建异常（非致命）:', metaError.message);
+      }
+
+      // 明确设置Content-Type头，确保响应被正确识别为JSON
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      
       return res.status(200).json({
         success: true,
         message: '文件上传成功（Shopify Files完整存储）',
