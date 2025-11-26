@@ -183,17 +183,24 @@ export default async function handler(req, res) {
       }
 
       // 构建customAttributes
+      const normalizeValue = (value, fallback = '') => {
+        if (value === null || value === undefined) {
+          return fallback;
+        }
+        return String(value);
+      };
+
       const baseAttributes = [
         // 基本参数
-        { key: '材料', value: material },
-        { key: '颜色', value: color },
-        { key: '精度', value: precision },
-        { key: '文件', value: fileName || 'model.stl' },
-        { key: '文件ID', value: fileId },
-        { key: '询价单号', value: quoteId },
-        { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
+        { key: '材料', value: normalizeValue(material, '未提供') },
+        { key: '颜色', value: normalizeValue(color, '未提供') },
+        { key: '精度', value: normalizeValue(precision, '未提供') },
+        { key: '文件', value: normalizeValue(fileName || 'model.stl') },
+        { key: '文件ID', value: normalizeValue(fileId, '未生成') },
+        { key: '询价单号', value: normalizeValue(quoteId) },
+        { key: 'Shopify文件ID', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileId : null, '未上传') },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
-        { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
+        { key: '原始文件大小', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.originalFileSize : null, '未知') },
         { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
       ];
 
@@ -217,7 +224,10 @@ export default async function handler(req, res) {
       console.log('- 前端参数数量:', frontendAttributes.length);
       console.log('- 前端参数详情:', frontendAttributes);
       
-      const allAttributes = [...baseAttributes, ...frontendAttributes];
+      const allAttributes = [...baseAttributes, ...frontendAttributes].map(attr => ({
+        key: attr.key,
+        value: normalizeValue(attr.value, '')
+      }));
       console.log('- 总参数数量:', allAttributes.length);
       
       // 准备输入数据
