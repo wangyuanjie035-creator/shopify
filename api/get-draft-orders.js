@@ -184,12 +184,21 @@ export default async function handler(req, res) {
       
       // 从第一个lineItem的customAttributes中提取文件ID和文件数据
       let fileId = null;
+      let shopifyFileId = null;
       let fileData = null;
       if (order.lineItems.edges.length > 0) {
         const firstLineItem = order.lineItems.edges[0].node;
         const fileIdAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件ID');
         if (fileIdAttr) {
           fileId = fileIdAttr.value;
+        }
+        
+        // 提取Shopify文件ID（优先使用）
+        const shopifyFileIdAttr = firstLineItem.customAttributes.find(attr => 
+          attr.key === 'Shopify文件ID' || attr.key === 'shopifyFileId'
+        );
+        if (shopifyFileIdAttr && shopifyFileIdAttr.value && shopifyFileIdAttr.value !== '未上传') {
+          shopifyFileId = shopifyFileIdAttr.value;
         }
         
         const fileDataAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件数据');
@@ -219,6 +228,7 @@ export default async function handler(req, res) {
         updatedAt: order.updatedAt,
         invoiceUrl: order.invoiceUrl || 'data:stored',
         fileId: fileId, // 添加文件ID
+        shopifyFileId: shopifyFileId, // 添加Shopify文件ID（优先使用）
         fileData: fileData, // 添加文件数据
         note: order.note, // 添加note字段
         lineItems: order.lineItems.edges.map(itemEdge => ({
