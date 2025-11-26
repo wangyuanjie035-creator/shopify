@@ -150,16 +150,17 @@ export default async function handler(req, res) {
           body: uploadBuffer
         });
       } else {
-        // GCS Signed URL 场景：只有 content_type/acl 等元数据，不需要 multipart，直接 POST/PUT 原始文件
+        // GCS Signed URL 场景：Shopify 预签名中已包含所有必要信息，只允许 POST/PUT 原始文件
         const contentTypeParam = parameters.find(param => param.name === 'content_type');
-        const method = stagedTarget.url.includes('X-Goog-SignedHeaders=host') ? 'POST' : 'PUT';
+        const method = 'POST';
+        const headers = {
+          'Content-Type': contentTypeParam ? contentTypeParam.value : (fileType || 'application/octet-stream'),
+          'Content-Length': fileBuffer.length.toString(),
+          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
+        };
         uploadResponse = await fetch(stagedTarget.url, {
           method,
-          headers: {
-            'Content-Type': contentTypeParam ? contentTypeParam.value : (fileType || 'application/octet-stream'),
-            'Content-Length': fileBuffer.length.toString(),
-            'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
-          },
+          headers,
           body: fileBuffer
         });
       }
