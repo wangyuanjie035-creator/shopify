@@ -115,18 +115,34 @@ export default async function handler(req, res) {
       // 步骤2: 上传文件到临时地址
       let uploadResponse;
       if (Array.isArray(stagedTarget.parameters) && stagedTarget.parameters.length > 0) {
-        const formData = new FormData();
+        // 手动构建 multipart/form-data，确保格式完全符合 Google Cloud Storage 签名要求
+        const boundary = `----formdata-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const parts = [];
+        
+        // 按照 Shopify 返回的顺序添加所有参数
         stagedTarget.parameters.forEach(param => {
-          formData.append(param.name, param.value);
+          parts.push(`--${boundary}\r\n`);
+          parts.push(`Content-Disposition: form-data; name="${param.name}"\r\n\r\n`);
+          parts.push(`${param.value}\r\n`);
         });
-        formData.append('file', fileBuffer, {
-          filename: fileName,
-          contentType: fileType || 'application/octet-stream'
-        });
-        const uploadHeaders = formData.getHeaders();
-        const uploadBuffer = formData.getBuffer();
-        uploadHeaders['Content-Length'] = uploadBuffer.length;
-        uploadHeaders['x-goog-content-sha256'] = 'UNSIGNED-PAYLOAD';
+        
+        // 添加文件部分
+        parts.push(`--${boundary}\r\n`);
+        parts.push(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`);
+        parts.push(`Content-Type: ${fileType || 'application/octet-stream'}\r\n\r\n`);
+        
+        // 构建完整的 multipart body
+        const textParts = parts.join('');
+        const textBuffer = Buffer.from(textParts, 'utf8');
+        const endBoundary = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+        const uploadBuffer = Buffer.concat([textBuffer, fileBuffer, endBoundary]);
+        
+        const uploadHeaders = {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': uploadBuffer.length.toString(),
+          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
+        };
+        
         uploadResponse = await fetch(stagedTarget.url, {
           method: 'POST',
           headers: uploadHeaders,
@@ -137,7 +153,7 @@ export default async function handler(req, res) {
           method: 'PUT',
           headers: {
             'Content-Type': fileType || 'application/octet-stream',
-            'Content-Length': fileBuffer.length,
+            'Content-Length': fileBuffer.length.toString(),
             'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
           },
           body: fileBuffer
