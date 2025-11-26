@@ -19,26 +19,49 @@ if (typeof process !== 'undefined' && process.emitWarning) {
 
 /**
  * ═══════════════════════════════════════════════════════════════
- * 真实文件存储API - 使用Shopify Staged Upload
+ * 获取 Draft Orders 列表 API - 管理端使用
  * ═══════════════════════════════════════════════════════════════
  * 
- * 功能：将Base64文件数据上传到Shopify Files
+ * 功能：获取所有 Draft Orders 列表供管理端显示
  * 
  * 用途：
- * - 确保文件大小与原始上传一致
- * - 使用Shopify CDN存储，提供更好的性能
- * - 支持大文件上传（最大100MB）
+ * - 管理端显示所有询价单
+ * - 支持状态过滤
+ * - 提供统计信息
  * 
  * 请求示例：
- * POST /api/store-file-real
+ * GET /api/get-draft-orders?status=pending
+ * GET /api/get-draft-orders?limit=20
+ * 
+ * 响应示例：
  * {
- *   "fileData": "data:application/step;base64,U1RFUCBGSUxF...",
- *   "fileName": "model.STEP",
- *   "fileType": "application/step"
+ *   "success": true,
+ *   "draftOrders": [
+ *     {
+ *       "id": "gid://shopify/DraftOrder/1234567890",
+ *       "name": "#D1001",
+ *       "email": "customer@example.com",
+ *       "status": "pending",
+ *       "totalPrice": "99.00",
+ *       "createdAt": "2025-10-15T08:00:00Z",
+ *       "lineItems": [...]
+ *     }
+ *   ],
+ *   "total": 10,
+ *   "pending": 5,
+ *   "quoted": 5
  * }
  */
 
 export default async function handler(req, res) {
+  // 记录请求信息用于调试
+  console.log('📥 get-draft-orders 收到请求:', {
+    method: req.method,
+    url: req.url,
+    query: req.query
+  });
+
+  // 设置CORS头
   setCorsHeaders(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -46,252 +69,219 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (req.method === 'POST') {
-    try {
-      const { fileData, fileName, fileType } = req.body;
-
-      if (!fileData || !fileName) {
-        return res.status(400).json({
-          success: false,
-          message: '缺少必要参数：fileData 和 fileName'
-        });
-      }
-
-      // 解析Base64数据
-      const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
-      const fileBuffer = Buffer.from(base64Data, 'base64');
-      const fileSize = fileBuffer.length;
-
-      console.log(`📁 开始上传文件: ${fileName}, 大小: ${fileSize} 字节`);
-
-      // 获取环境变量
-      const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
-      const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
-
-      if (!storeDomain || !accessToken) {
-        return res.status(500).json({
-          success: false,
-          message: '环境变量未配置：SHOP/SHOPIFY_STORE_DOMAIN 和 ADMIN_TOKEN/SHOPIFY_ACCESS_TOKEN'
-        });
-      }
-
-      // 步骤1: 创建Staged Upload
-      const stagedUploadMutation = `
-        mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
-          stagedUploadsCreate(input: $input) {
-            stagedTargets {
-              url
-              resourceUrl
-              parameters {
-                name
-                value
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-
-      const stagedUploadResponse = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken
-        },
-        body: JSON.stringify({
-          query: stagedUploadMutation,
-          variables: {
-            input: [{
-              filename: fileName,
-              mimeType: fileType || 'application/octet-stream',
-              resource: 'FILE'
-            }]
-          }
-        })
-      });
-
-      const stagedUploadData = await stagedUploadResponse.json();
-      
-      if (stagedUploadData.errors || stagedUploadData.data.stagedUploadsCreate.userErrors.length > 0) {
-        console.error('❌ Staged Upload创建失败:', stagedUploadData);
-        return res.status(500).json({
-          success: false,
-          message: 'Staged Upload创建失败',
-          error: stagedUploadData.errors || stagedUploadData.data.stagedUploadsCreate.userErrors
-        });
-      }
-
-      const stagedTarget = stagedUploadData.data.stagedUploadsCreate.stagedTargets[0];
-      console.log('✅ Staged Upload创建成功');
-
-      // 步骤2: 上传文件到临时地址
-      const formData = new FormData();
-      
-      // 添加参数
-      stagedTarget.parameters.forEach(param => {
-        formData.append(param.name, param.value);
-      });
-      
-      // 添加文件
-      const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
-      formData.append('file', blob, fileName);
-
-      const uploadResponse = await fetch(stagedTarget.url, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!uploadResponse.ok) {
-        console.error('❌ 文件上传失败:', uploadResponse.status, uploadResponse.statusText);
-        return res.status(500).json({
-          success: false,
-          message: '文件上传到临时地址失败',
-          error: `${uploadResponse.status} - ${uploadResponse.statusText}`
-        });
-      }
-
-      console.log('✅ 文件上传到临时地址成功');
-
-      // 步骤3: 创建永久文件记录
-      const fileCreateMutation = `
-        mutation fileCreate($files: [FileCreateInput!]!) {
-          fileCreate(files: $files) {
-            files {
-              id
-              fileStatus
-              originalFileSize
-              url
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-
-      const fileCreateResponse = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken
-        },
-        body: JSON.stringify({
-          query: fileCreateMutation,
-          variables: {
-            files: [{
-              originalSource: stagedTarget.resourceUrl,
-              contentType: fileType || 'application/octet-stream',
-              alt: fileName
-            }]
-          }
-        })
-      });
-
-      const fileCreateData = await fileCreateResponse.json();
-
-      if (fileCreateData.errors || fileCreateData.data.fileCreate.userErrors.length > 0) {
-        console.error('❌ 文件记录创建失败:', fileCreateData);
-        return res.status(500).json({
-          success: false,
-          message: '文件记录创建失败',
-          error: fileCreateData.errors || fileCreateData.data.fileCreate.userErrors
-        });
-      }
-
-      const fileRecord = fileCreateData.data.fileCreate.files[0];
-      console.log('✅ 文件记录创建成功:', fileRecord.id);
-
-      // 生成文件ID
-      const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // 步骤4: 创建 uploaded_file Metaobject 存储文件元数据（根据文档要求）
-      try {
-        const metaobjectCreateMutation = `
-          mutation metaobjectCreate($metaobject: MetaobjectCreateInput!) {
-            metaobjectCreate(metaobject: $metaobject) {
-              metaobject {
-                id
-                handle
-              }
-              userErrors {
-                field
-                message
-              }
-            }
-          }
-        `;
-
-        const metaobjectResult = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Shopify-Access-Token': accessToken
-          },
-          body: JSON.stringify({
-            query: metaobjectCreateMutation,
-            variables: {
-              metaobject: {
-                type: 'uploaded_file',
-                fields: [
-                  { key: 'file_id', value: fileId },
-                  { key: 'file_name', value: fileName },
-                  { key: 'file_type', value: fileType || 'application/octet-stream' },
-                  { key: 'file_data', value: '' }, // 已废弃，不再存储Base64
-                  { key: 'file_url', value: fileRecord.url || '' },
-                  { key: 'shopify_file_id', value: fileRecord.id },
-                  { key: 'file_size', value: fileSize.toString() },
-                  { key: 'upload_time', value: new Date().toISOString() }
-                ]
-              }
-            }
-          })
-        });
-
-        const metaobjectData = await metaobjectResult.json();
-        
-        if (metaobjectData.errors || (metaobjectData.data?.metaobjectCreate?.userErrors?.length > 0)) {
-          console.warn('⚠️ uploaded_file Metaobject创建失败（非致命）:', 
-            metaobjectData.errors || metaobjectData.data.metaobjectCreate.userErrors);
-        } else {
-          console.log('✅ uploaded_file Metaobject创建成功:', metaobjectData.data.metaobjectCreate.metaobject.id);
-        }
-      } catch (metaError) {
-        // Metaobject创建失败不影响文件上传成功
-        console.warn('⚠️ uploaded_file Metaobject创建异常（非致命）:', metaError.message);
-      }
-
-      // 明确设置Content-Type头，确保响应被正确识别为JSON
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      
-      return res.status(200).json({
-        success: true,
-        message: '文件上传成功（Shopify Files完整存储）',
-        fileId: fileId,
-        fileName: fileName,
-        fileUrl: fileRecord.url,
-        shopifyFileId: fileRecord.id,
-        originalFileSize: fileRecord.originalFileSize,
-        uploadedFileSize: fileSize,
-        sizeMatch: fileRecord.originalFileSize === fileSize,
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (error) {
-      console.error('❌ 文件存储失败:', error);
-      return res.status(500).json({
-        success: false,
-        message: '文件存储失败',
-        error: error.message
-      });
-    }
+  // 只接受GET请求
+  if (req.method !== 'GET') {
+    console.warn('⚠️ 不支持的请求方法:', req.method);
+    return res.status(405).json({ 
+      error: 'Method not allowed',
+      allowed: ['GET', 'OPTIONS'],
+      received: req.method
+    });
   }
 
-  res.status(405).json({
-    error: 'Method not allowed',
-    allowed: ['POST', 'OPTIONS']
-  });
+  try {
+    console.log('开始获取Draft Orders列表...');
+
+    // 检查环境变量 - 支持多种变量名
+    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
+    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
+    
+    if (!storeDomain || !accessToken) {
+      console.log('环境变量未配置，返回模拟数据');
+      
+      // 返回模拟数据
+      return res.status(200).json({
+        success: true,
+        message: '环境变量未配置，返回模拟数据',
+        draftOrders: [
+          {
+            id: 'gid://shopify/DraftOrder/1234567890',
+            name: '#D1001',
+            email: 'customer@example.com',
+            status: 'pending',
+            totalPrice: '99.00',
+            createdAt: new Date().toISOString(),
+            lineItems: [
+              {
+                title: '3D打印服务',
+                quantity: 1,
+                originalUnitPrice: '99.00'
+              }
+            ]
+          },
+          {
+            id: 'gid://shopify/DraftOrder/1234567891',
+            name: '#D1002',
+            email: 'test@example.com',
+            status: 'quoted',
+            totalPrice: '199.00',
+            createdAt: new Date(Date.now() - 3600000).toISOString(),
+            lineItems: [
+              {
+                title: '3D打印服务',
+                quantity: 2,
+                originalUnitPrice: '99.50'
+              }
+            ]
+          }
+        ],
+        total: 2,
+        pending: 1,
+        quoted: 1,
+        note: '这是模拟数据，请配置环境变量后重新部署'
+      });
+    }
+
+    // 获取查询参数
+    const { status, limit = 50 } = req.query;
+
+    // GraphQL查询
+    const query = `
+      query getDraftOrders($first: Int!) {
+        draftOrders(first: $first) {
+          edges {
+            node {
+              id
+              name
+              email
+              totalPrice
+              createdAt
+              updatedAt
+              status
+              invoiceUrl
+              lineItems(first: 10) {
+                edges {
+                  node {
+                    id
+                    title
+                    quantity
+                    originalUnitPrice
+                    customAttributes {
+                      key
+                      value
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    // 调用Shopify Admin API
+    const response = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken
+      },
+      body: JSON.stringify({
+        query: query,
+        variables: { first: parseInt(limit) }
+      })
+    });
+
+    const data = await response.json();
+    console.log('Shopify API响应:', data);
+
+    if (data.errors) {
+      console.error('GraphQL错误:', data.errors);
+      throw new Error(`GraphQL错误: ${data.errors[0].message}`);
+    }
+
+    // 处理响应数据
+    const draftOrders = data.data.draftOrders.edges.map(edge => {
+      const order = edge.node;
+      
+      // 从第一个lineItem的customAttributes中提取文件ID和文件数据
+      let fileId = null;
+      let shopifyFileId = null;
+      let fileData = null;
+      if (order.lineItems.edges.length > 0) {
+        const firstLineItem = order.lineItems.edges[0].node;
+        const fileIdAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件ID');
+        if (fileIdAttr) {
+          fileId = fileIdAttr.value;
+        }
+        
+        // 提取Shopify文件ID（优先使用）
+        const shopifyFileIdAttr = firstLineItem.customAttributes.find(attr => 
+          attr.key === 'Shopify文件ID' || attr.key === 'shopifyFileId'
+        );
+        if (shopifyFileIdAttr && shopifyFileIdAttr.value && shopifyFileIdAttr.value !== '未上传') {
+          shopifyFileId = shopifyFileIdAttr.value;
+        }
+        
+        const fileDataAttr = firstLineItem.customAttributes.find(attr => attr.key === '文件数据');
+        if (fileDataAttr && fileDataAttr.value && fileDataAttr.value.startsWith('data:')) {
+          fileData = fileDataAttr.value;
+          console.log('✅ 从customAttributes提取到文件数据');
+        }
+      }
+
+      // 从customAttributes中获取状态信息
+      let orderStatus = 'pending';
+      if (order.lineItems.edges.length > 0) {
+        const firstLineItem = order.lineItems.edges[0].node;
+        const statusAttr = firstLineItem.customAttributes.find(attr => attr.key === '状态');
+        if (statusAttr && statusAttr.value === '已报价') {
+          orderStatus = 'quoted';
+        }
+      }
+
+      return {
+        id: order.id,
+        name: order.name,
+        email: order.email,
+        status: orderStatus, // 使用从customAttributes获取的状态
+        totalPrice: order.totalPrice,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        invoiceUrl: order.invoiceUrl || 'data:stored',
+        fileId: fileId, // 添加文件ID
+        shopifyFileId: shopifyFileId, // 添加Shopify文件ID（优先使用）
+        fileData: fileData, // 添加文件数据
+        note: order.note, // 添加note字段
+        lineItems: order.lineItems.edges.map(itemEdge => ({
+          id: itemEdge.node.id,
+          title: itemEdge.node.title,
+          quantity: itemEdge.node.quantity,
+          originalUnitPrice: itemEdge.node.originalUnitPrice,
+          customAttributes: itemEdge.node.customAttributes
+        }))
+      };
+    });
+
+    // 状态过滤
+    let filteredOrders = draftOrders;
+    if (status && status !== 'all') {
+      filteredOrders = draftOrders.filter(order => order.status === status);
+    }
+
+    // 计算统计信息
+    const total = draftOrders.length;
+    const pending = draftOrders.filter(o => o.status === 'pending').length;
+    const quoted = draftOrders.filter(o => o.status === 'quoted').length;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Draft Orders获取成功',
+      draftOrders: filteredOrders,
+      total: total,
+      pending: pending,
+      quoted: quoted,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('获取Draft Orders失败:', error);
+    
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '获取Draft Orders失败',
+      timestamp: new Date().toISOString()
+    });
+  }
 }
