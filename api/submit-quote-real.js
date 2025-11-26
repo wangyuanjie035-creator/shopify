@@ -173,15 +173,98 @@ export default async function handler(req, res) {
 
           if (storeFileResponse.ok) {
             const contentType = storeFileResponse.headers.get('content-type');
-            if (contentType && contentType.includes('application/json')) {
-              shopifyFileInfo = await storeFileResponse.json();
-              fileId = shopifyFileInfo.fileId;
-              console.log('✅ 文件上传到Shopify Files成功:', shopifyFileInfo);
-            } else {
-              console.warn('⚠️ 文件上传API返回非JSON响应，使用Base64存储');
+            console.log('📋 文件上传响应信息:', {
+              status: storeFileResponse.status,
+              contentType: contentType,
+              contentLength: storeFileResponse.headers.get('content-length')
+            });
+            
+            try {
+              // 尝试解析JSON，即使Content-Type不是application/json
+              // 因为Vercel Serverless Functions可能不会总是设置正确的Content-Type
+              const responseText = await storeFileResponse.text();
+              console.log('📄 响应体长度:', responseText.length, '前300字符:', responseText.substring(0, 300));
+              
+              // 尝试多种方式解析响应
+              let parsed = null;
+              
+              // 方法1: 直接JSON.parse
+              try {
+                parsed = JSON.parse(responseText);
+              } catch (e1) {
+                // 方法2: 尝试提取JSON部分（如果响应被包装）
+                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  try {
+                    parsed = JSON.parse(jsonMatch[0]);
+                    console.log('✅ 从响应中提取JSON成功');
+                  } catch (e2) {
+                    console.warn('⚠️ 提取的JSON也无法解析:', e2.message);
+                  }
+                }
+              }
+              
+              if (parsed) {
+                shopifyFileInfo = parsed;
+                if (shopifyFileInfo && shopifyFileInfo.success) {
+                  if (shopifyFileInfo.fileId) {
+                    fileId = shopifyFileInfo.fileId;
+                  }
+                  console.log('✅ 文件上传到Shopify Files成功:', {
+                    fileId: shopifyFileInfo.fileId || fileId,
+                    shopifyFileId: shopifyFileInfo.shopifyFileId,
+                    fileUrl: shopifyFileInfo.fileUrl,
+                    fileSize: shopifyFileInfo.uploadedFileSize || shopifyFileInfo.originalFileSize
+                  });
+                } else {
+                  console.warn('⚠️ 文件上传响应格式异常 - success字段为false:', shopifyFileInfo);
+                }
+              } else {
+                // 如果完全无法解析，尝试从响应中提取关键信息
+                console.warn('⚠️ 无法解析JSON响应，尝试提取关键信息');
+                console.warn('⚠️ 响应内容前1000字符:', responseText.substring(0, 1000));
+                
+                // 尝试提取关键字段
+                const shopifyFileIdMatch = responseText.match(/"shopifyFileId"\s*:\s*"([^"]+)"/);
+                const fileIdMatch = responseText.match(/"fileId"\s*:\s*"([^"]+)"/);
+                const fileUrlMatch = responseText.match(/"fileUrl"\s*:\s*"([^"]+)"/);
+                const successMatch = responseText.match(/"success"\s*:\s*(true|false)/);
+                
+                if (successMatch && successMatch[1] === 'true') {
+                  // 即使无法完全解析，如果检测到success:true，尝试提取关键信息
+                  shopifyFileInfo = {
+                    success: true,
+                    shopifyFileId: shopifyFileIdMatch ? shopifyFileIdMatch[1] : null,
+                    fileId: fileIdMatch ? fileIdMatch[1] : null,
+                    fileUrl: fileUrlMatch ? fileUrlMatch[1] : null
+                  };
+                  
+                  if (shopifyFileInfo.shopifyFileId) {
+                    console.log('✅ 从响应中提取到关键信息:', {
+                      shopifyFileId: shopifyFileInfo.shopifyFileId,
+                      fileId: shopifyFileInfo.fileId,
+                      hasFileUrl: !!shopifyFileInfo.fileUrl
+                    });
+                    
+                    if (shopifyFileInfo.fileId) {
+                      fileId = shopifyFileInfo.fileId;
+                    }
+                  } else {
+                    console.warn('⚠️ 检测到success:true，但无法提取shopifyFileId');
+                  }
+                } else {
+                  console.error('❌ 文件上传响应无法解析，且未检测到成功标识');
+                  console.error('❌ 响应长度:', responseText.length);
+                  console.error('❌ 响应内容:', responseText.substring(0, 2000));
+                }
+              }
+            } catch (textError) {
+              console.error('❌ 无法读取响应体:', textError.message);
             }
           } else {
-            console.warn('⚠️ 文件上传到Shopify Files失败，状态码:', storeFileResponse.status, '使用Base64存储');
+            const errorText = await storeFileResponse.text().catch(() => storeFileResponse.statusText);
+            console.error('❌ 文件上传到Shopify Files失败，状态码:', storeFileResponse.status);
+            console.error('❌ 错误详情:', errorText.substring(0, 1000));
           }
         } catch (uploadError) {
           console.warn('⚠️ 文件上传到Shopify Files异常:', uploadError.message);
@@ -209,7 +292,8 @@ export default async function handler(req, res) {
         { key: 'Shopify文件ID', value: shopifyFileInfo ? shopifyFileInfo.shopifyFileId : '未上传' },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: shopifyFileInfo ? shopifyFileInfo.originalFileSize : '未知' },
-        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
+        // 当上传到 Shopify Files 成功时，只存标记；失败时回退为直接存储 Base64 数据，方便旧前端直接下载
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? req.body.fileUrl : '未提供') }
       ];
 
       
