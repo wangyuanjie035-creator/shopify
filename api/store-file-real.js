@@ -113,31 +113,31 @@ export default async function handler(req, res) {
       console.log('✅ Staged Upload创建成功:', stagedTarget);
 
       // 步骤2: 上传文件到临时地址
+      const parameters = Array.isArray(stagedTarget.parameters) ? stagedTarget.parameters : [];
+      const hasPolicy = parameters.some(param => param.name === 'policy');
+
       let uploadResponse;
-      if (Array.isArray(stagedTarget.parameters) && stagedTarget.parameters.length > 0) {
-        // 手动构建 multipart/form-data，确保格式完全符合 Google Cloud Storage 签名要求
+      if (hasPolicy) {
+        // S3 风格：需要 multipart/form-data，包含 policy/signature 等字段
         const boundary = `----formdata-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const parts = [];
         
-        // 按照 Shopify 返回的顺序添加所有参数
-        stagedTarget.parameters.forEach(param => {
+        parameters.forEach(param => {
           parts.push(`--${boundary}\r\n`);
           parts.push(`Content-Disposition: form-data; name="${param.name}"\r\n\r\n`);
           parts.push(`${param.value}\r\n`);
         });
         
-        // 添加文件部分
         parts.push(`--${boundary}\r\n`);
         parts.push(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`);
         parts.push(`Content-Type: ${fileType || 'application/octet-stream'}\r\n\r\n`);
         
-        // 构建完整的 multipart body
         const textParts = parts.join('');
         const textBuffer = Buffer.from(textParts, 'utf8');
         const fileEnding = Buffer.from('\r\n', 'utf8');
         const endBoundary = Buffer.from(`--${boundary}--\r\n`, 'utf8');
         const uploadBuffer = Buffer.concat([textBuffer, fileBuffer, fileEnding, endBoundary]);
-        
+
         const uploadHeaders = {
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
           'Content-Length': uploadBuffer.length.toString(),
@@ -150,10 +150,13 @@ export default async function handler(req, res) {
           body: uploadBuffer
         });
       } else {
+        // GCS Signed URL 场景：只有 content_type/acl 等元数据，不需要 multipart，直接 POST/PUT 原始文件
+        const contentTypeParam = parameters.find(param => param.name === 'content_type');
+        const method = stagedTarget.url.includes('X-Goog-SignedHeaders=host') ? 'POST' : 'PUT';
         uploadResponse = await fetch(stagedTarget.url, {
-          method: 'PUT',
+          method,
           headers: {
-            'Content-Type': fileType || 'application/octet-stream',
+            'Content-Type': contentTypeParam ? contentTypeParam.value : (fileType || 'application/octet-stream'),
             'Content-Length': fileBuffer.length.toString(),
             'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
           },
