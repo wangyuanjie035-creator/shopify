@@ -41,7 +41,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { id, shopifyFileId, fileName: requestedFileName } = req.query;
+    let { id, shopifyFileId, fileName: requestedFileName } = req.query;
+
+    // 兼容旧前端：如果没有显式提供 shopifyFileId，但 id 是 Shopify 文件的 GID，则将其视为 shopifyFileId
+    if (!shopifyFileId && typeof id === 'string' && id.startsWith('gid://shopify/File/')) {
+      shopifyFileId = id;
+    }
     
     // 如果提供了shopifyFileId，则通过Shopify Files下载
     if (shopifyFileId) {
