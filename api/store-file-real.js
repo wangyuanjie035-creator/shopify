@@ -1,11 +1,41 @@
 import { setCorsHeaders } from './cors-config.js';
 
+// 抑制 url.parse() 弃用警告 (DEP0169)
+// 这个警告来自 Node.js 内部或依赖，不影响功能
+if (typeof process !== 'undefined' && process.emitWarning) {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = function(warning, ...args) {
+    if (
+      typeof warning === 'string' && 
+      (warning.includes('url.parse()') || warning.includes('DEP0169'))
+    ) {
+      // 抑制这个特定的警告
+      return;
+    }
+    // 其他警告正常显示
+    return originalEmitWarning.call(process, warning, ...args);
+  };
+}
+
 /**
  * ═══════════════════════════════════════════════════════════════
  * 真实文件存储API - 使用Shopify Staged Upload
  * ═══════════════════════════════════════════════════════════════
  * 
  * 功能：将Base64文件数据上传到Shopify Files
+ * 
+ * 用途：
+ * - 确保文件大小与原始上传一致
+ * - 使用Shopify CDN存储，提供更好的性能
+ * - 支持大文件上传（最大100MB）
+ * 
+ * 请求示例：
+ * POST /api/store-file-real
+ * {
+ *   "fileData": "data:application/step;base64,U1RFUCBGSUxF...",
+ *   "fileName": "model.STEP",
+ *   "fileType": "application/step"
+ * }
  */
 
 export default async function handler(req, res) {
@@ -45,9 +75,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // 使用 WHATWG URL API 构造 Shopify GraphQL URL
-      const graphqlUrl = new URL('/admin/api/2024-01/graphql.json', `https://${storeDomain}`);
-
       // 步骤1: 创建Staged Upload
       const stagedUploadMutation = `
         mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
@@ -68,7 +95,7 @@ export default async function handler(req, res) {
         }
       `;
 
-      const stagedUploadResponse = await fetch(graphqlUrl.href, {
+      const stagedUploadResponse = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -87,7 +114,7 @@ export default async function handler(req, res) {
       });
 
       const stagedUploadData = await stagedUploadResponse.json();
-
+      
       if (stagedUploadData.errors || stagedUploadData.data.stagedUploadsCreate.userErrors.length > 0) {
         console.error('❌ Staged Upload创建失败:', stagedUploadData);
         return res.status(500).json({
@@ -102,7 +129,13 @@ export default async function handler(req, res) {
 
       // 步骤2: 上传文件到临时地址
       const formData = new FormData();
-      stagedTarget.parameters.forEach(param => formData.append(param.name, param.value));
+      
+      // 添加参数
+      stagedTarget.parameters.forEach(param => {
+        formData.append(param.name, param.value);
+      });
+      
+      // 添加文件
       const blob = new Blob([fileBuffer], { type: fileType || 'application/octet-stream' });
       formData.append('file', blob, fileName);
 
@@ -140,7 +173,7 @@ export default async function handler(req, res) {
         }
       `;
 
-      const fileCreateResponse = await fetch(graphqlUrl.href, {
+      const fileCreateResponse = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -172,6 +205,7 @@ export default async function handler(req, res) {
       const fileRecord = fileCreateData.data.fileCreate.files[0];
       console.log('✅ 文件记录创建成功:', fileRecord.id);
 
+      // 生成文件ID
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       return res.status(200).json({
