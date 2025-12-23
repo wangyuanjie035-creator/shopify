@@ -66,5 +66,34 @@
     {% if settings.quick_add or settings.mobile_quick_add %}
       {% render 'quick-add-modal' %}
     {% endif %}
+
+    {%- comment -%}
+      隐藏“草稿订单管理”导航：非白名单管理员看不到入口，避免误点。
+      如需调整白名单，请修改 ADMIN_EMAILS。
+    {%- endcomment -%}
+    <script>
+      (() => {
+        const ADMIN_EMAILS = ['jonathan.wang@sainstore.com', 'jonthan.wang@gmail.com'];
+        const customerEmail = ({{ customer.email | json }} || '').toLowerCase();
+        const isAdmin = ADMIN_EMAILS.includes(customerEmail);
+
+        if (!isAdmin) {
+          const hideLinks = () => {
+            const links = document.querySelectorAll('a[href*="admin-draft-orders"], a[href*="/pages/admin-draft-orders"]');
+            links.forEach(a => {
+              a.style.display = 'none';
+              if (a.parentElement && a.parentElement.tagName === 'LI') {
+                a.parentElement.style.display = 'none';
+              }
+            });
+          };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', hideLinks);
+          } else {
+            hideLinks();
+          }
+        }
+      })();
+    </script>
   </body>
 </html>
