@@ -648,6 +648,7 @@
 <script>
 // API配置
 const API_BASE = 'https://shopify-13s4.vercel.app/api';
+const customerEmail = document.querySelector('.customer-authenticated')?.dataset.customerEmail || '';
 
 // 从URL获取订单ID
 const urlParams = new URLSearchParams(window.location.search);
@@ -657,6 +658,10 @@ console.log('草稿订单ID:', draftOrderId);
 
 // 页面加载时获取订单详情
 document.addEventListener('DOMContentLoaded', async function() {
+  if (!customerEmail) {
+    showError('未能获取当前账户邮箱，无法加载询价单。请重新登录。');
+    return;
+  }
   if (!draftOrderId) {
     // 如果没有指定订单ID，显示所有订单列表
     console.log('未指定订单ID，加载所有订单列表');
@@ -684,7 +689,7 @@ async function refreshOrderStatus() {
     console.log('🔄 刷新订单状态:', draftOrderId);
     
     // 直接查询最新的订单详情
-    const response = await fetch(`${API_BASE}/get-draft-order-simple?id=${encodeURIComponent(draftOrderId)}`);
+    const response = await fetch(`${API_BASE}/get-draft-order-simple?id=${encodeURIComponent(draftOrderId)}&email=${encodeURIComponent(customerEmail)}`);
     
     if (response.ok) {
       const data = await response.json();
@@ -751,7 +756,7 @@ async function loadOrderDetails() {
   try {
     // 先检查所有草稿订单
     console.log('检查所有草稿订单...');
-    const listResponse = await fetch(`${API_BASE}/get-draft-orders`);
+    const listResponse = await fetch(`${API_BASE}/get-draft-orders?email=${encodeURIComponent(customerEmail)}`);
     const listData = await listResponse.json();
     console.log('草稿订单列表:', listData);
     
@@ -805,7 +810,7 @@ async function loadOrderDetails() {
     
     // 如果列表中没有找到，尝试直接查询
     console.log('尝试直接查询订单详情...');
-    const response = await fetch(`${API_BASE}/get-draft-order-simple?id=${encodeURIComponent(draftOrderId)}`);
+    const response = await fetch(`${API_BASE}/get-draft-order-simple?id=${encodeURIComponent(draftOrderId)}&email=${encodeURIComponent(customerEmail)}`);
     
     if (!response.ok) {
       if (response.status === 404) {
@@ -1247,7 +1252,7 @@ async function placeOrder() {
 async function loadAllOrders() {
   try {
     console.log('加载所有订单列表...');
-    const response = await fetch(`${API_BASE}/get-draft-orders`);
+    const response = await fetch(`${API_BASE}/get-draft-orders?email=${encodeURIComponent(customerEmail)}`);
     
     if (!response.ok) {
       throw new Error(`API请求失败: ${response.status}`);

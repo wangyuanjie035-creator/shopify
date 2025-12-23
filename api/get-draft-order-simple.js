@@ -49,7 +49,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { id } = req.query;
+  const { id, email } = req.query;
+  const customerEmail = (email || '').trim().toLowerCase();
+  
+  if (!customerEmail) {
+    return res.status(401).json({
+      error: '缺少客户邮箱',
+      message: '请提供 email 参数以验证身份'
+    });
+  }
   
   if (!id) {
     return res.status(400).json({
@@ -94,6 +102,14 @@ export default async function handler(req, res) {
       
       const result = await shopGql(query, { id });
       draftOrder = result.data.draftOrder;
+
+      // 邮箱校验：确保订单属于当前客户
+      if (draftOrder && (draftOrder.email || '').toLowerCase() !== customerEmail) {
+        return res.status(403).json({
+          error: 'forbidden',
+          message: '该询价单不属于当前账户'
+        });
+      }
     } else {
       // 如果是名称格式，先搜索再查询
       const searchQuery = `
@@ -128,7 +144,10 @@ export default async function handler(req, res) {
       `;
       
       const searchTerm = id.startsWith('#') ? `name:${id}` : `name:#${id}`;
-      const result = await shopGql(searchQuery, { query: searchTerm });
+      // 同时按邮箱限定，防止看到他人询价
+      const searchQueryStr = `${searchTerm} AND email:"${customerEmail}"`;
+
+      const result = await shopGql(searchQuery, { query: searchQueryStr });
       
       if (result.data.draftOrders.edges.length > 0) {
         draftOrder = result.data.draftOrders.edges[0].node;

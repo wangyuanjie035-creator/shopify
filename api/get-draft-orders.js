@@ -104,12 +104,22 @@ export default async function handler(req, res) {
     }
 
     // 获取查询参数
-    const { status, limit = 50 } = req.query;
+    const { status, limit = 50, email } = req.query;
+
+    // 基于客户邮箱的访问控制，防止任意用户获取全部询价
+    const customerEmail = (email || '').trim().toLowerCase();
+    if (!customerEmail) {
+      return res.status(401).json({
+        success: false,
+        error: 'missing_email',
+        message: '缺少客户邮箱，无法获取询价单列表'
+      });
+    }
 
     // GraphQL查询
     const query = `
-      query getDraftOrders($first: Int!) {
-        draftOrders(first: $first) {
+      query getDraftOrders($first: Int!, $search: String!) {
+        draftOrders(first: $first, query: $search) {
           edges {
             node {
               id
@@ -149,7 +159,10 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         query: query,
-        variables: { first: parseInt(limit) }
+        variables: { 
+          first: parseInt(limit), 
+          search: `email:"${customerEmail}"`
+        }
       })
     });
 
@@ -214,10 +227,14 @@ export default async function handler(req, res) {
       };
     });
 
+    // 按邮箱兜底过滤，防止意外漏出
+    let filteredOrders = draftOrders.filter(order => 
+      (order.email || '').toLowerCase() === customerEmail
+    );
+
     // 状态过滤
-    let filteredOrders = draftOrders;
     if (status && status !== 'all') {
-      filteredOrders = draftOrders.filter(order => order.status === status);
+      filteredOrders = filteredOrders.filter(order => order.status === status);
     }
 
     // 计算统计信息
