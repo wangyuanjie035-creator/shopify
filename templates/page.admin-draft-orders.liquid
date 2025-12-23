@@ -3,6 +3,9 @@
   安全：需要管理员密码验证
 {% endcomment %}
 
+<!-- 当前登录邮箱（用于前端校验） -->
+<div id="customer-email" data-email="{{ customer.email | downcase | escape }}"></div>
+
 <!-- 管理员登录验证界面 -->
 <div id="admin-login-screen" class="admin-login-screen">
   <div class="login-card">
@@ -588,8 +591,10 @@
 </style>
 
 <script>
-  // 管理员密码验证 (默认密码：admin123，可在环境变量中修改)
-  const ADMIN_PASSWORD = 'admin123'; // 实际使用时应从服务器配置中读取
+  // 管理员白名单（如需新增，追加邮箱即可）
+  const ADMIN_EMAILS = ['jonthan.wang@gmail.com'];
+  const customerEmail = (document.getElementById('customer-email')?.dataset.email || '').trim().toLowerCase();
+  const isAdminUser = ADMIN_EMAILS.includes(customerEmail);
   const SESSION_KEY = 'admin_authenticated';
   const SESSION_EXPIRY_KEY = 'admin_session_expiry';
 
@@ -611,32 +616,14 @@
     return false;
   }
 
-  // 验证管理员密码
+  // 验证管理员密码（当前版本直接依赖邮箱白名单，不再使用密码）
   function verifyAdminPassword() {
-    const input = document.getElementById('admin-password-input');
-    const errorDiv = document.getElementById('login-error');
-    const password = input.value.trim();
-
-    if (!password) {
-      errorDiv.textContent = '请输入密码';
-      errorDiv.style.display = 'block';
-      return;
-    }
-
-    if (password === ADMIN_PASSWORD) {
-      // 验证成功，设置会话（2小时有效期）
-      const expiry = Date.now() + (2 * 60 * 60 * 1000);
-      sessionStorage.setItem(SESSION_KEY, 'true');
-      sessionStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
-      
-      showAdminContent();
-      loadOrders(); // 加载订单数据
-    } else {
-      errorDiv.textContent = '密码错误，请重试';
-      errorDiv.style.display = 'block';
-      input.value = '';
-      input.focus();
-    }
+    // 已由邮箱校验保护，这里直接放行
+    const expiry = Date.now() + (2 * 60 * 60 * 1000);
+    sessionStorage.setItem(SESSION_KEY, 'true');
+    sessionStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
+    showAdminContent();
+    loadOrders();
   }
 
   // 显示登录界面
@@ -656,11 +643,33 @@
 
   // 页面加载时检查会话
   document.addEventListener('DOMContentLoaded', function() {
-    if (!checkAdminSession()) {
-      // 未验证，显示登录界面
+    // 必须先登录客户账号
+    if (!customerEmail) {
+      document.getElementById('admin-login-screen').style.display = 'none';
+      document.getElementById('admin-content').style.display = 'none';
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:40px;text-align:center;color:#c00;font-size:16px;';
+      warn.innerHTML = '请先登录管理员账户后访问此页面。';
+      document.body.prepend(warn);
       return;
     }
-    // 已验证，加载数据
+
+    // 非白名单账号直接拒绝
+    if (!isAdminUser) {
+      document.getElementById('admin-login-screen').style.display = 'none';
+      document.getElementById('admin-content').style.display = 'none';
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:40px;text-align:center;color:#c00;font-size:16px;';
+      warn.innerHTML = '当前账户无权限访问草稿订单管理。';
+      document.body.prepend(warn);
+      return;
+    }
+
+    // 管理员直接通过（不再要求输入密码）
+    const expiry = Date.now() + (2 * 60 * 60 * 1000);
+    sessionStorage.setItem(SESSION_KEY, 'true');
+    sessionStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
+    showAdminContent();
     loadOrders();
   });
 
@@ -703,7 +712,7 @@
       console.log('开始加载Draft Orders...');
       
       // 调用API获取Draft Orders
-      const response = await fetch(`${API_BASE}/get-draft-orders`);
+      const response = await fetch(`${API_BASE}/get-draft-orders?admin=1&email=${encodeURIComponent(customerEmail)}`);
       
       if (!response.ok) {
         throw new Error(`API调用失败: ${response.status}`);
