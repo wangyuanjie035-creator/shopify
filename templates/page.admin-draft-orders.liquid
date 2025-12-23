@@ -4,7 +4,7 @@
 {% endcomment %}
 
 <!-- 当前登录邮箱（用于前端校验） -->
-<div id="customer-email" data-email="{{ customer.email | downcase | escape }}"></div>
+<div id="customer-email" data-email="{{ customer.email | downcase | escape }}" data-tags="{{ customer.tags | join: ',' | downcase | escape }}"></div>
 
 <!-- 管理员登录验证界面 -->
 <div id="admin-login-screen" class="admin-login-screen">
@@ -592,9 +592,11 @@
 
 <script>
   // 管理员白名单（如需新增，追加邮箱即可）
-  const ADMIN_EMAILS = ['jonthan.wang@gmail.com'];
-  const customerEmail = (document.getElementById('customer-email')?.dataset.email || '').trim().toLowerCase();
-  const isAdminUser = ADMIN_EMAILS.includes(customerEmail);
+  const ADMIN_EMAILS = ['jonathan.wang@sainstore.com', 'jonthan.wang@gmail.com'];
+  const customerEl = document.getElementById('customer-email');
+  const customerEmail = (customerEl?.dataset.email || '').trim().toLowerCase();
+  const customerTags = (customerEl?.dataset.tags || '').split(',').map(t => t.trim());
+  const isAdminUser = ADMIN_EMAILS.includes(customerEmail) || customerTags.includes('admin');
   const SESSION_KEY = 'admin_authenticated';
   const SESSION_EXPIRY_KEY = 'admin_session_expiry';
 

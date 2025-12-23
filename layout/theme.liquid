@@ -86,6 +86,13 @@
                 a.parentElement.style.display = 'none';
               }
             });
+            // 隐藏可能出现的“More”折叠入口
+            document.querySelectorAll('details.disclosure').forEach(d => {
+              const summaryText = (d.querySelector('summary')?.textContent || '').trim().toLowerCase();
+              if (summaryText === 'more' || !d.querySelector('a')) {
+                d.style.display = 'none';
+              }
+            });
           };
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', hideLinks);
