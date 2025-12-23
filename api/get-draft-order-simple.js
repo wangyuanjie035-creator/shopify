@@ -49,13 +49,27 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { id, email } = req.query;
+  const { id, email, admin } = req.query;
   const customerEmail = (email || '').trim().toLowerCase();
+
+  // 管理员白名单
+  const adminWhitelist = (process.env.ADMIN_EMAIL_WHITELIST || 'jonthan.wang@gmail.com')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
+  const isAdminRequest = ['1', 'true', 'yes'].includes((admin || '').toString().toLowerCase()) &&
+    adminWhitelist.includes(customerEmail);
   
   if (!customerEmail) {
     return res.status(401).json({
       error: '缺少客户邮箱',
       message: '请提供 email 参数以验证身份'
+    });
+  }
+  if (admin && !isAdminRequest) {
+    return res.status(403).json({
+      error: 'forbidden',
+      message: '您无权查看其他用户的询价单'
     });
   }
   
@@ -103,8 +117,8 @@ export default async function handler(req, res) {
       const result = await shopGql(query, { id });
       draftOrder = result.data.draftOrder;
 
-      // 邮箱校验：确保订单属于当前客户
-      if (draftOrder && (draftOrder.email || '').toLowerCase() !== customerEmail) {
+      // 邮箱校验：确保订单属于当前客户（管理员除外）
+      if (!isAdminRequest && draftOrder && (draftOrder.email || '').toLowerCase() !== customerEmail) {
         return res.status(403).json({
           error: 'forbidden',
           message: '该询价单不属于当前账户'
@@ -144,8 +158,10 @@ export default async function handler(req, res) {
       `;
       
       const searchTerm = id.startsWith('#') ? `name:${id}` : `name:#${id}`;
-      // 同时按邮箱限定，防止看到他人询价
-      const searchQueryStr = `${searchTerm} AND email:"${customerEmail}"`;
+      // 管理员可搜索任意；普通用户需限定邮箱
+      const searchQueryStr = isAdminRequest
+        ? searchTerm
+        : `${searchTerm} AND email:"${customerEmail}"`;
 
       const result = await shopGql(searchQuery, { query: searchQueryStr });
       

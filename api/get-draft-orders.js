@@ -104,15 +104,29 @@ export default async function handler(req, res) {
     }
 
     // 获取查询参数
-    const { status, limit = 50, email } = req.query;
+    const { status, limit = 50, email, admin } = req.query;
 
-    // 基于客户邮箱的访问控制，防止任意用户获取全部询价
-    const customerEmail = (email || '').trim().toLowerCase();
-    if (!customerEmail) {
+    // 管理员白名单（逗号分隔，环境变量 ADMIN_EMAIL_WHITELIST）
+    const adminWhitelist = (process.env.ADMIN_EMAIL_WHITELIST || 'jonthan.wang@gmail.com')
+      .split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean);
+    const requesterEmail = (email || '').trim().toLowerCase();
+    const isAdminRequest = ['1', 'true', 'yes'].includes((admin || '').toString().toLowerCase());
+
+    // 认证与授权
+    if (!requesterEmail) {
       return res.status(401).json({
         success: false,
         error: 'missing_email',
         message: '缺少客户邮箱，无法获取询价单列表'
+      });
+    }
+    if (isAdminRequest && !adminWhitelist.includes(requesterEmail)) {
+      return res.status(403).json({
+        success: false,
+        error: 'forbidden',
+        message: '您无权查看全部询价单'
       });
     }
 
@@ -161,7 +175,10 @@ export default async function handler(req, res) {
         query: query,
         variables: { 
           first: parseInt(limit), 
-          search: `email:"${customerEmail}"`
+          // 管理端允许查看全部；普通用户按邮箱过滤
+          search: isAdminRequest
+            ? (status && status !== 'all' ? `status:${status}` : '')
+            : `email:"${requesterEmail}"`
         }
       })
     });
@@ -227,10 +244,10 @@ export default async function handler(req, res) {
       };
     });
 
-    // 按邮箱兜底过滤，防止意外漏出
-    let filteredOrders = draftOrders.filter(order => 
-      (order.email || '').toLowerCase() === customerEmail
-    );
+    // 按邮箱兜底过滤，防止意外漏出（管理员除外）
+    let filteredOrders = isAdminRequest
+      ? draftOrders
+      : draftOrders.filter(order => (order.email || '').toLowerCase() === requesterEmail);
 
     // 状态过滤
     if (status && status !== 'all') {
