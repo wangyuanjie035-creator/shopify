@@ -82,6 +82,8 @@ export default async function handler(req, res) {
 
       const contentCategory = determineContentCategory(fileType, fileName);
       const mimeType = determineMimeType(fileType, fileName);
+      // stagedUploadsCreate 对 3D 模型不接受 model/step 等，统一用 octet-stream 申请上传 URL
+      const stagedMimeType = contentCategory === 'MODEL_3D' ? 'application/octet-stream' : mimeType;
       // 3D 模型需要 stagedUploadsCreate 的 resource 也为 MODEL_3D，否则原始链接会被拒
       const resourceType = contentCategory === 'MODEL_3D' ? 'MODEL_3D' : 'FILE';
 
@@ -129,7 +131,7 @@ export default async function handler(req, res) {
           variables: {
             input: [{
               filename: fileName,
-              mimeType,
+              mimeType: stagedMimeType,
               resource: resourceType
             }]
           }
@@ -169,7 +171,7 @@ export default async function handler(req, res) {
         
         parts.push(`--${boundary}\r\n`);
         parts.push(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`);
-        parts.push(`Content-Type: ${fileType || 'application/octet-stream'}\r\n\r\n`);
+        parts.push(`Content-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`);
         
         const textParts = parts.join('');
         const textBuffer = Buffer.from(textParts, 'utf8');
