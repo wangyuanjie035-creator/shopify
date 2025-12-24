@@ -167,7 +167,12 @@ async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
 
     const result = await shopGql(query, { id: shopifyFileId });
 
-    if (!result.data.file) {
+    if (result.errors && result.errors.length > 0) {
+      console.error('Shopify文件查询错误:', result.errors);
+      return res.status(500).json({ error: '文件查询失败', message: result.errors[0].message });
+    }
+
+    if (!result.data || !result.data.file) {
       return res.status(404).json({ error: '文件未找到' });
     }
 
