@@ -221,8 +221,11 @@ export default async function handler(req, res) {
           variables: {
             files: [{
               originalSource: stagedTarget.resourceUrl,
-              contentType: contentCategory,
-              alt: fileName
+              // 与 staged upload 使用 FILE 资源保持一致，避免类型不匹配报错
+              contentType: 'FILE',
+              alt: fileName || '',
+              filename: fileName || undefined,
+              fileSize: fileSize || undefined
             }]
           }
         })
@@ -233,7 +236,7 @@ export default async function handler(req, res) {
       const createdFiles = fileCreateData?.data?.fileCreate?.files || [];
 
       if (fileCreateData.errors || userErrors.length > 0 || createdFiles.length === 0) {
-        console.error('❌ 文件记录创建失败:', fileCreateData);
+        console.error('❌ 文件记录创建失败:', JSON.stringify(userErrors || fileCreateData, null, 2));
         return res.status(500).json({
           success: false,
           message: '文件记录创建失败',
