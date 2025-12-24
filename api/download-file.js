@@ -25,7 +25,7 @@ async function shopGql(query, variables) {
   return json;
 }
 
-import { setCorsHeaders } from './cors-config.js';
+import { setCorsHeaders } from '../utils/cors-config.js';
 
 export default async function handler(req, res) {
   setCorsHeaders(req, res);

@@ -33,7 +33,7 @@
  * }
  */
 
-import { setCorsHeaders } from './cors-config.js';
+import { setCorsHeaders } from '../utils/cors-config.js';
 
 const API_BASE_URL = process.env.API_BASE_URL || 'https://shopify-13s4.vercel.app';
 

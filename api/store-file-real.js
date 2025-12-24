@@ -1,6 +1,6 @@
 import { Blob } from 'buffer';
 import FormData from 'form-data';
-import { setCorsHeaders } from './cors-config.js';
+import { setCorsHeaders } from '../utils/cors-config.js';
 
 // 统一判断文件类别，Shopify fileCreate 只接受枚举类型
 const MODEL_EXTENSIONS = ['stl', 'obj', 'step', 'stp', '3mf', 'glb', 'gltf', '3ds', 'ply'];
