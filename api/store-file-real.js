@@ -14,6 +14,27 @@ function determineContentCategory(fileType, fileName) {
   return 'FILE';
 }
 
+function determineMimeType(fileType, fileName) {
+  const mime = (fileType || '').toLowerCase();
+  const ext = (fileName || '').toLowerCase().split('.').pop();
+
+  const mapByExt = {
+    step: 'model/step',
+    stp: 'model/step',
+    stl: 'model/stl',
+    obj: 'model/obj',
+    '3mf': 'model/3mf',
+    glb: 'model/gltf-binary',
+    gltf: 'model/gltf+json',
+    '3ds': 'model/3ds',
+    ply: 'model/ply',
+  };
+
+  if (mapByExt[ext]) return mapByExt[ext];
+  if (mime) return mime;
+  return 'application/octet-stream';
+}
+
 /**
  * ═══════════════════════════════════════════════════════════════
  * 真实文件存储API - 使用Shopify Staged Upload
@@ -60,6 +81,7 @@ export default async function handler(req, res) {
       const fileSize = fileBuffer.length;
 
       const contentCategory = determineContentCategory(fileType, fileName);
+      const mimeType = determineMimeType(fileType, fileName);
       // 3D 模型需要 stagedUploadsCreate 的 resource 也为 MODEL_3D，否则原始链接会被拒
       const resourceType = contentCategory === 'MODEL_3D' ? 'MODEL_3D' : 'FILE';
 
@@ -107,7 +129,7 @@ export default async function handler(req, res) {
           variables: {
             input: [{
               filename: fileName,
-              mimeType: fileType || 'application/octet-stream',
+              mimeType,
               resource: resourceType
             }]
           }
@@ -118,7 +140,7 @@ export default async function handler(req, res) {
       
       const stagedUserErrors = stagedUploadData?.data?.stagedUploadsCreate?.userErrors || [];
       if (stagedUploadData.errors || stagedUserErrors.length > 0) {
-        console.error('❌ Staged Upload创建失败:', stagedUploadData);
+        console.error('❌ Staged Upload创建失败:', JSON.stringify(stagedUserErrors, null, 2), ' raw=', JSON.stringify(stagedUploadData, null, 2));
         return res.status(500).json({
           success: false,
           message: 'Staged Upload创建失败',
