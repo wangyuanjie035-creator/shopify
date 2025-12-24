@@ -60,8 +60,8 @@ export default async function handler(req, res) {
       const fileSize = fileBuffer.length;
 
       const contentCategory = determineContentCategory(fileType, fileName);
-      // Shopify stagedUploadsCreate 对文件使用 resource: FILE，无论最终类型
-      const resourceType = 'FILE';
+      // 3D 模型需要 stagedUploadsCreate 的 resource 也为 MODEL_3D，否则原始链接会被拒
+      const resourceType = contentCategory === 'MODEL_3D' ? 'MODEL_3D' : 'FILE';
 
       console.log(`📁 开始上传文件: ${fileName}, 大小: ${fileSize} 字节`, { fileType, contentCategory });
 
