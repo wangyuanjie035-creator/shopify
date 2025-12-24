@@ -50,52 +50,64 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing file ID' });
     }
 
-    // 查询存储在 Metaobject 中的文件记录
-    const query = `
-      query($type: String!, $first: Int!) {
-        metaobjects(type: $type, first: $first) {
-          nodes {
-            id
-            handle
-            fields { key value }
-          }
+    // 优先按 handle 精确查询 uploaded_file
+    const handleQuery = `
+      query($handle: String!, $type: String!) {
+        metaobjectByHandle(handle: $handle, type: $type) {
+          id
+          fields { key value }
         }
       }
     `;
 
-    let nodes = [];
+    let fileRecord = null;
     try {
-      const result = await shopGql(query, { type: FILE_METAOBJECT_TYPE, first: 100 });
-      if (result?.errors) {
-        console.error('GraphQL errors:', result.errors);
-      }
-      nodes = result?.data?.metaobjects?.nodes || [];
-    } catch (gqlErr) {
-      console.error('GraphQL request failed:', gqlErr);
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件服务暂不可用</title><style>body{font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:40px auto;background:#f7f7f7} .card{background:#fff;padding:28px 32px;border-radius:10px;box-shadow:0 3px 16px rgba(0,0,0,.08)} h1{color:#e67e22;font-size:22px;margin:0 0 12px} p{color:#555;line-height:1.7;margin:8px 0} code{background:#f2f2f2;padding:4px 6px;border-radius:4px}</style></head><body><div class="card"><h1>⚠️ 文件服务暂不可用</h1><p>文件ID：<code>${id}</code></p><p>后台文件存储服务暂时不可用，请稍后重试，或联系客户重新提供文件。</p></div></body></html>`;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.status(503).send(html);
+      const handleResult = await shopGql(handleQuery, { handle: id, type: FILE_METAOBJECT_TYPE });
+      fileRecord = handleResult?.data?.metaobjectByHandle || null;
+    } catch (err) {
+      console.warn('按 handle 查询 uploaded_file 失败，尝试列表查询:', err.message);
     }
-    const fileRecord = nodes.find(node => {
-      const f = node.fields.find(x => x.key === 'file_id');
-      return f && f.value === id;
-    });
+
+    // 未找到时降级列表查询（最多100条）
+    if (!fileRecord) {
+      const listQuery = `
+        query($type: String!, $first: Int!) {
+          metaobjects(type: $type, first: $first) {
+            nodes {
+              id
+              handle
+              fields { key value }
+            }
+          }
+        }
+      `;
+      try {
+        const result = await shopGql(listQuery, { type: FILE_METAOBJECT_TYPE, first: 100 });
+        if (result?.errors) {
+          console.error('GraphQL errors:', result.errors);
+        }
+        const nodes = result?.data?.metaobjects?.nodes || [];
+        fileRecord = nodes.find(node => {
+          const f = node.fields.find(x => x.key === 'file_id');
+          return f && f.value === id;
+        }) || null;
+      } catch (gqlErr) {
+        console.error('GraphQL request failed:', gqlErr);
+      }
+    }
 
     if (!fileRecord) {
-      // 特殊处理本地存储的文件ID（我们生成的file_开头的ID）
+      // 特殊处理本地存储或占位符
       if (id.startsWith('file_')) {
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>本地存储文件</title><style>body{font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:40px auto;background:#f7f7f7} .card{background:#fff;padding:28px 32px;border-radius:10px;box-shadow:0 3px 16px rgba(0,0,0,.08)} h1{color:#27ae60;font-size:22px;margin:0 0 12px} p{color:#555;line-height:1.7;margin:8px 0} code{background:#f2f2f2;padding:4px 6px;border-radius:4px} .info{background:#e8f5e8;padding:16px;border-radius:6px;border-left:4px solid #27ae60} .download-btn{background:#27ae60;color:white;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:16px;margin:10px 5px} .download-btn:hover{background:#219a52}</style></head><body><div class="card"><h1>📁 本地存储文件</h1><p>文件ID：<code>${id}</code></p><div class="info"><p><strong>说明：</strong>此文件存储在客户浏览器的本地存储中。</p><p><strong>下载方式：</strong>请在客户浏览器中访问此文件ID进行下载。</p><p><strong>注意：</strong>文件仅在客户浏览器中可用，无法通过API直接下载。</p></div><button class="download-btn" onclick="window.close()">关闭</button></body></html>`;
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.status(200).send(html);
-      }
-      
-      // 特殊处理 placeholder 文件ID
-      if (id === 'placeholder') {
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件上传失败</title><style>body{font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:40px auto;background:#f7f7f7} .card{background:#fff;padding:28px 32px;border-radius:10px;box-shadow:0 3px 16px rgba(0,0,0,.08)} h1{color:#e67e22;font-size:22px;margin:0 0 12px} p{color:#555;line-height:1.7;margin:8px 0} code{background:#f2f2f2;padding:4px 6px;border-radius:4px}</style></head><body><div class="card"><h1>⚠️ 文件上传失败</h1><p>文件ID：<code>${id}</code></p><p>此文件在上传过程中失败，无法下载。请联系客户重新上传文件。</p></div></body></html>`;
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件不存在</title></head><body>未找到文件：${id}</body></html>`;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         return res.status(404).send(html);
       }
-      
+      if (id === 'placeholder') {
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件上传失败</title></head><body>文件上传失败，ID：${id}</body></html>`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(404).send(html);
+      }
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件不存在</title></head><body>文件不存在：${id}</body></html>`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(404).send(html);

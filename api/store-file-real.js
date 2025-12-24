@@ -293,6 +293,7 @@ export default async function handler(req, res) {
 
       const metaInput = {
         type: 'uploaded_file',
+        handle: fileId,
         fields: [
           { key: 'file_id', value: fileId },
           { key: 'file_name', value: fileName || '' },
