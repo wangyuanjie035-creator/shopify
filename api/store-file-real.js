@@ -3,14 +3,18 @@ import FormData from 'form-data';
 import { setCorsHeaders } from '../utils/cors-config.js';
 
 // 统一判断文件类别，Shopify fileCreate 只接受枚举类型
-const MODEL_EXTENSIONS = ['stl', 'obj', 'step', 'stp', '3mf', 'glb', 'gltf', '3ds', 'ply'];
+// 注意：STEP/STP 在 Shopify 不被当作 MODEL_3D 支持，按 FILE 处理
+const MODEL_EXTENSIONS = ['stl', 'obj', '3mf', 'glb', 'gltf', '3ds', 'ply'];
 function determineContentCategory(fileType, fileName) {
   const mime = (fileType || '').toLowerCase();
   const ext = (fileName || '').toLowerCase().split('.').pop();
 
   if (mime.startsWith('image/')) return 'IMAGE';
   if (mime.startsWith('video/')) return 'VIDEO';
-  if (mime.includes('model') || MODEL_EXTENSIONS.includes(ext)) return 'MODEL_3D';
+  if (mime.includes('model') && !['model/step', 'model/x.stp', 'application/step', 'application/octet-stream'].includes(mime)) {
+    return 'MODEL_3D';
+  }
+  if (MODEL_EXTENSIONS.includes(ext)) return 'MODEL_3D';
   return 'FILE';
 }
 
@@ -82,10 +86,9 @@ export default async function handler(req, res) {
 
       const contentCategory = determineContentCategory(fileType, fileName);
       const mimeType = determineMimeType(fileType, fileName);
-      // stagedUploadsCreate 对 3D 模型不接受 model/step 等，统一用 octet-stream 申请上传 URL
-      const stagedMimeType = contentCategory === 'MODEL_3D' ? 'application/octet-stream' : mimeType;
-      // 3D 模型需要 stagedUploadsCreate 的 resource 也为 MODEL_3D，否则原始链接会被拒
+      // 如果分类为 FILE，则 resource 也用 FILE，mime 用 octet-stream（STEP/STP 走此分支）
       const resourceType = contentCategory === 'MODEL_3D' ? 'MODEL_3D' : 'FILE';
+      const stagedMimeType = resourceType === 'MODEL_3D' ? mimeType : 'application/octet-stream';
 
       console.log(`📁 开始上传文件: ${fileName}, 大小: ${fileSize} 字节`, { fileType, contentCategory });
 
