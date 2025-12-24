@@ -2,6 +2,18 @@ import { Blob } from 'buffer';
 import FormData from 'form-data';
 import { setCorsHeaders } from './cors-config.js';
 
+// 统一判断文件类别，Shopify fileCreate 只接受枚举类型
+const MODEL_EXTENSIONS = ['stl', 'obj', 'step', 'stp', '3mf', 'glb', 'gltf', '3ds', 'ply'];
+function determineContentCategory(fileType, fileName) {
+  const mime = (fileType || '').toLowerCase();
+  const ext = (fileName || '').toLowerCase().split('.').pop();
+
+  if (mime.startsWith('image/')) return 'IMAGE';
+  if (mime.startsWith('video/')) return 'VIDEO';
+  if (mime.includes('model') || MODEL_EXTENSIONS.includes(ext)) return 'MODEL_3D';
+  return 'FILE';
+}
+
 /**
  * ═══════════════════════════════════════════════════════════════
  * 真实文件存储API - 使用Shopify Staged Upload
@@ -47,7 +59,12 @@ export default async function handler(req, res) {
       const fileBuffer = Buffer.from(base64Data, 'base64');
       const fileSize = fileBuffer.length;
 
-      console.log(`📁 开始上传文件: ${fileName}, 大小: ${fileSize} 字节`);
+      const contentCategory = determineContentCategory(fileType, fileName);
+      const resourceType = contentCategory === 'MODEL_3D' || contentCategory === 'IMAGE' || contentCategory === 'VIDEO'
+        ? contentCategory
+        : 'FILE';
+
+      console.log(`📁 开始上传文件: ${fileName}, 大小: ${fileSize} 字节`, { fileType, contentCategory });
 
       // 获取环境变量
       const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
@@ -92,7 +109,7 @@ export default async function handler(req, res) {
             input: [{
               filename: fileName,
               mimeType: fileType || 'application/octet-stream',
-              resource: 'FILE'
+              resource: resourceType
             }]
           }
         })
@@ -150,13 +167,12 @@ export default async function handler(req, res) {
           body: uploadBuffer
         });
       } else {
-        // GCS Signed URL 场景：Shopify 预签名中已包含所有必要信息，只允许 POST/PUT 原始文件
+        // GCS Signed URL 场景：Shopify 预签名中已包含所有必要信息，通常使用 PUT 原始文件
         const contentTypeParam = parameters.find(param => param.name === 'content_type');
-        const method = 'POST';
+        const method = 'PUT';
         const headers = {
-          'Content-Type': contentTypeParam ? contentTypeParam.value : (fileType || 'application/octet-stream'),
-          'Content-Length': fileBuffer.length.toString(),
-          'x-goog-content-sha256': 'UNSIGNED-PAYLOAD'
+          'Content-Type': contentTypeParam ? contentTypeParam.value : (fileType || 'application/octet-stream')
+          // 不额外设置 content-length / x-goog-content-sha256，避免签名不匹配
         };
         uploadResponse = await fetch(stagedTarget.url, {
           method,
@@ -185,8 +201,6 @@ export default async function handler(req, res) {
             files {
               id
               fileStatus
-              originalFileSize
-              url
             }
             userErrors {
               field
@@ -207,7 +221,7 @@ export default async function handler(req, res) {
           variables: {
             files: [{
               originalSource: stagedTarget.resourceUrl,
-              contentType: fileType || 'application/octet-stream',
+              contentType: contentCategory,
               alt: fileName
             }]
           }
@@ -215,17 +229,19 @@ export default async function handler(req, res) {
       });
 
       const fileCreateData = await fileCreateResponse.json();
+      const userErrors = fileCreateData?.data?.fileCreate?.userErrors || [];
+      const createdFiles = fileCreateData?.data?.fileCreate?.files || [];
 
-      if (fileCreateData.errors || fileCreateData.data.fileCreate.userErrors.length > 0) {
+      if (fileCreateData.errors || userErrors.length > 0 || createdFiles.length === 0) {
         console.error('❌ 文件记录创建失败:', fileCreateData);
         return res.status(500).json({
           success: false,
           message: '文件记录创建失败',
-          error: fileCreateData.errors || fileCreateData.data.fileCreate.userErrors
+          error: fileCreateData.errors || userErrors
         });
       }
 
-      const fileRecord = fileCreateData.data.fileCreate.files[0];
+      const fileRecord = createdFiles[0];
       console.log('✅ 文件记录创建成功:', fileRecord.id);
 
       // 生成文件ID
@@ -236,11 +252,9 @@ export default async function handler(req, res) {
         message: '文件上传成功（Shopify Files完整存储）',
         fileId: fileId,
         fileName: fileName,
-        fileUrl: fileRecord.url,
         shopifyFileId: fileRecord.id,
-        originalFileSize: fileRecord.originalFileSize,
+        originalFileSize: fileSize,
         uploadedFileSize: fileSize,
-        sizeMatch: fileRecord.originalFileSize === fileSize,
         timestamp: new Date().toISOString()
       });
 
