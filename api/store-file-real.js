@@ -223,9 +223,7 @@ export default async function handler(req, res) {
               originalSource: stagedTarget.resourceUrl,
               // 与 staged upload 使用 FILE 资源保持一致，避免类型不匹配报错
               contentType: 'FILE',
-              alt: fileName || '',
-              filename: fileName || undefined,
-              fileSize: fileSize || undefined
+              alt: fileName || ''
             }]
           }
         })
