@@ -199,6 +199,7 @@ export default async function handler(req, res) {
         { key: '文件ID', value: normalizeValue(fileId, '未生成') },
         { key: '询价单号', value: normalizeValue(quoteId) },
         { key: 'Shopify文件ID', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileId : null, '未上传') },
+        { key: 'Shopify文件URL', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileUrl : null, '未上传') },
         { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
         { key: '原始文件大小', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.originalFileSize : null, '未知') },
         { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
