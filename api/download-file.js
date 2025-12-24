@@ -147,14 +147,13 @@ async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
   try {
     console.log('开始下载Shopify文件:', { shopifyFileId, fileName });
 
-    // 构建GraphQL查询来获取文件URL
+    // 使用 node 查询文件，兼容不同版本 API
     const query = `
       query($id: ID!) {
-        file(id: $id) {
+        node(id: $id) {
           ... on GenericFile {
             url
             originalFileSize
-            contentType
           }
           ... on MediaImage {
             image {
@@ -172,11 +171,11 @@ async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
       return res.status(500).json({ error: '文件查询失败', message: result.errors[0].message });
     }
 
-    if (!result.data || !result.data.file) {
+    if (!result.data || !result.data.node) {
       return res.status(404).json({ error: '文件未找到' });
     }
 
-    const file = result.data.file;
+    const file = result.data.node;
     let fileUrl = null;
 
     // 获取文件URL
