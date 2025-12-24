@@ -60,9 +60,8 @@ export default async function handler(req, res) {
       const fileSize = fileBuffer.length;
 
       const contentCategory = determineContentCategory(fileType, fileName);
-      const resourceType = contentCategory === 'MODEL_3D' || contentCategory === 'IMAGE' || contentCategory === 'VIDEO'
-        ? contentCategory
-        : 'FILE';
+      // Shopify stagedUploadsCreate 对文件使用 resource: FILE，无论最终类型
+      const resourceType = 'FILE';
 
       console.log(`📁 开始上传文件: ${fileName}, 大小: ${fileSize} 字节`, { fileType, contentCategory });
 
@@ -117,12 +116,13 @@ export default async function handler(req, res) {
 
       const stagedUploadData = await stagedUploadResponse.json();
       
-      if (stagedUploadData.errors || stagedUploadData.data.stagedUploadsCreate.userErrors.length > 0) {
+      const stagedUserErrors = stagedUploadData?.data?.stagedUploadsCreate?.userErrors || [];
+      if (stagedUploadData.errors || stagedUserErrors.length > 0) {
         console.error('❌ Staged Upload创建失败:', stagedUploadData);
         return res.status(500).json({
           success: false,
           message: 'Staged Upload创建失败',
-          error: stagedUploadData.errors || stagedUploadData.data.stagedUploadsCreate.userErrors
+          error: stagedUploadData.errors || stagedUserErrors
         });
       }
 
