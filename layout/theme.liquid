@@ -78,17 +78,27 @@
         const isAdmin = ADMIN_EMAILS.includes(customerEmail);
 
         const hideMoreMenus = () => {
+          // 隐藏标题为 More 的折叠菜单或链接
           document.querySelectorAll('details.disclosure').forEach(d => {
             const summaryText = (d.querySelector('summary')?.textContent || '').trim().toLowerCase();
             if (summaryText === 'more') {
               d.style.display = 'none';
             }
           });
+          document.querySelectorAll('a, button').forEach(el => {
+            const txt = (el.textContent || '').trim().toLowerCase();
+            if (txt === 'more') {
+              el.style.display = 'none';
+              if (el.parentElement && el.parentElement.tagName === 'LI') {
+                el.parentElement.style.display = 'none';
+              }
+            }
+          });
         };
 
         const hideCartIcon = () => {
           // 隐藏右上角购物车按钮（尽可能多的选择器兜底）
-          document.querySelectorAll([
+          const selectors = [
             'a[href="/cart"]',
             'a[href*="/cart"]',
             'button[data-cart-toggle]',
@@ -101,7 +111,8 @@
             '[aria-label="购物车"]',
             '[data-icon-type="cart"]',
             '[data-testid="cart-count-bubble"]'
-          ].join(',')).forEach(el => {
+          ];
+          document.querySelectorAll(selectors.join(',')).forEach(el => {
             const li = el.closest('li');
             if (li) li.style.display = 'none';
             el.style.display = 'none';
