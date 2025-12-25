@@ -77,6 +77,15 @@
         const customerEmail = ({{ customer.email | json }} || '').toLowerCase();
         const isAdmin = ADMIN_EMAILS.includes(customerEmail);
 
+        const hideMoreMenus = () => {
+          document.querySelectorAll('details.disclosure').forEach(d => {
+            const summaryText = (d.querySelector('summary')?.textContent || '').trim().toLowerCase();
+            if (summaryText === 'more') {
+              d.style.display = 'none';
+            }
+          });
+        };
+
         if (!isAdmin) {
           const hideLinks = () => {
             const links = document.querySelectorAll('a[href*="admin-draft-orders"], a[href*="/pages/admin-draft-orders"]');
@@ -87,17 +96,18 @@
               }
             });
             // 隐藏可能出现的“More”折叠入口
-            document.querySelectorAll('details.disclosure').forEach(d => {
-              const summaryText = (d.querySelector('summary')?.textContent || '').trim().toLowerCase();
-              if (summaryText === 'more' || !d.querySelector('a')) {
-                d.style.display = 'none';
-              }
-            });
+            hideMoreMenus();
           };
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', hideLinks);
           } else {
             hideLinks();
+          }
+        } else {
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', hideMoreMenus);
+          } else {
+            hideMoreMenus();
           }
         }
       })();
