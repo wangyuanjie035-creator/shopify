@@ -86,6 +86,13 @@
           });
         };
 
+        const hideCartIcon = () => {
+          // 隐藏右上角购物车按钮
+          document.querySelectorAll('a[href*="/cart"], button[data-cart-toggle], .header__icon--cart').forEach(el => {
+            el.style.display = 'none';
+          });
+        };
+
         if (!isAdmin) {
           const hideLinks = () => {
             const links = document.querySelectorAll('a[href*="admin-draft-orders"], a[href*="/pages/admin-draft-orders"]');
@@ -97,6 +104,7 @@
             });
             // 隐藏可能出现的“More”折叠入口
             hideMoreMenus();
+            hideCartIcon();
           };
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', hideLinks);
@@ -105,9 +113,13 @@
           }
         } else {
           if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', hideMoreMenus);
+            document.addEventListener('DOMContentLoaded', () => {
+              hideMoreMenus();
+              hideCartIcon();
+            });
           } else {
             hideMoreMenus();
+            hideCartIcon();
           }
         }
       })();
