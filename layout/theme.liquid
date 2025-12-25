@@ -87,9 +87,21 @@
         };
 
         const hideCartIcon = () => {
-          // 隐藏右上角购物车按钮
-          document.querySelectorAll('a[href*="/cart"], button[data-cart-toggle], .header__icon--cart').forEach(el => {
+          // 隐藏右上角购物车按钮（多种选择器兜底）
+          document.querySelectorAll([
+            'a[href="/cart"]',
+            'a[href*="/cart"]',
+            'button[data-cart-toggle]',
+            '.header__icon--cart',
+            '.site-header__cart',
+            '.icon-cart',
+            '[aria-label="Cart"]',
+            '[aria-label="购物车"]'
+          ].join(',')).forEach(el => {
             el.style.display = 'none';
+            if (el.parentElement && el.parentElement.classList.contains('header__icon')) {
+              el.parentElement.style.display = 'none';
+            }
           });
         };
 
