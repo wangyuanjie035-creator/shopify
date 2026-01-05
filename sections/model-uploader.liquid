@@ -635,11 +635,24 @@
           </select>
         </div>
 
-        <!-- 表面处理（支持多个） -->
+        <!-- 表面处理（可选，可多项） -->
         <div class="config-group">
           <label class="config-label">表面处理</label>
+          <div class="radio-group" style="margin-bottom:8px;">
+            <label class="radio-item">
+              <input type="radio" name="surface-enabled" value="yes">
+              <span>需要表面处理</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="surface-enabled" value="no" checked>
+              <span>无需表面处理</span>
+            </label>
+          </div>
           <div id="surface-list"></div>
-          <button type="button" id="add-surface-btn" class="btn btn-secondary" style="margin-top:8px;">点击此处可添加多个表面处理</button>
+          <div style="margin-top:8px;color:#666;font-size:12px;line-height:1.5;">
+            备注1：哑光，表面反光率低，光线模糊不明显，光感柔和，不刺眼；亮光，表面反光效果好，反光度高。<br>
+            备注2：喷砂默认统一按100目进行处理。
+          </div>
         </div>
 
         <!-- 精度等级 -->
