@@ -242,7 +242,9 @@
 
   function renderSurfaceTreatments(config) {
     if (!surfaceListContainer) return;
-    const rule = getSurfaceRule(config.material, config.materialCategory);
+    const category = config.materialCategory || DEFAULT_MATERIAL_CATEGORY;
+    const type = config.material || getDefaultMaterialType(category);
+    const rule = getSurfaceRule(type, category);
     const treatments = normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false, rule);
     config.surfaceTreatments = treatments;
 
@@ -356,7 +358,14 @@
     noteTextarea = document.getElementById('note');
     charCount = document.getElementById('char-count');
     initializeMaterialSelectors();
-    renderSurfaceTreatments({ surfaceTreatments: [], surfaceEnabled: false }, materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY);
+    const initCategory = materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY;
+    const initType = materialSelect?.value || getDefaultMaterialType(initCategory);
+    renderSurfaceTreatments({
+      surfaceTreatments: [],
+      surfaceEnabled: false,
+      materialCategory: initCategory,
+      material: initType
+    });
     scaleSlider = document.getElementById('scale');
     scaleValue = document.getElementById('scale-value');
     qtyInput = document.getElementById('qty');
