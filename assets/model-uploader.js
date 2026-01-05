@@ -27,12 +27,77 @@
   // DOM 元素
   let fileInput, dropzone, modelViewer, viewerContainer;
   let loadingIndicator, errorMessage, fileList, fileItems;
-  let materialSelect, finishSelect, scaleSlider, scaleValue;
+  let materialCategorySelect, materialSelect, finishSelect, scaleSlider, scaleValue;
   let qtyInput, qtyMinus, qtyPlus;
   let dimensionsDisplay, dimensionsValue;
   let addToCartBtn, form;
   let hasThreadRadios, hasAssemblyRadios, toleranceSelect, roughnessSelect, noteTextarea;
   let precisionSelect, charCount;
+
+  // 材料类型映射
+  const MATERIAL_TYPE_MAP = {
+    '铝合金': ['铝合金-6061', '铝合金-7075'],
+    '塑料': [
+      '工程塑料-ABS（白色）',
+      '工程塑料-ABS（黑色）',
+      '赛钢-POM（白色）',
+      '赛钢-POM（黑色）',
+      '电木（黑色）',
+      '电木（橘黄色）',
+      '亚克力',
+      '环氧板-FR4（绿色）',
+      '尼龙-PA6（白色）',
+      '聚碳酸酯-PC'
+    ],
+    '铜合金': ['黄铜-H59', '紫铜-T2'],
+    '合金钢': ['45#钢'],
+    '不锈钢': ['SUS304']
+  };
+  const DEFAULT_MATERIAL_CATEGORY = '铝合金';
+
+  function getDefaultMaterialType(category) {
+    const types = MATERIAL_TYPE_MAP[category] || [];
+    return types[0] || '';
+  }
+
+  function getCategoryForMaterial(materialType) {
+    if (!materialType) return null;
+    for (const [category, list] of Object.entries(MATERIAL_TYPE_MAP)) {
+      if (list.includes(materialType)) {
+        return category;
+      }
+    }
+    return null;
+  }
+
+  function refreshMaterialTypeOptions(category, selectedType) {
+    if (!materialSelect) return '';
+    const types = MATERIAL_TYPE_MAP[category] || [];
+    materialSelect.innerHTML = '';
+    types.forEach((type) => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      materialSelect.appendChild(option);
+    });
+    const nextType = types.includes(selectedType) ? selectedType : (types[0] || '');
+    if (nextType) {
+      materialSelect.value = nextType;
+    }
+    return nextType;
+  }
+
+  function initializeMaterialSelectors() {
+    const category = materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY;
+    const currentTypeValue = materialSelect?.value || '';
+    const normalizedType = refreshMaterialTypeOptions(category, currentTypeValue || getDefaultMaterialType(category));
+    if (materialCategorySelect && !materialCategorySelect.value) {
+      materialCategorySelect.value = category;
+    }
+    if (materialSelect && normalizedType) {
+      materialSelect.value = normalizedType;
+    }
+  }
   // 批量（选择集）——使用同一个"立即询价"按钮
   const selectedFileIds = new Set();
   let bulkAddBtn = null; // 不再渲染独立按钮，仅保留占位以兼容旧代码
@@ -56,7 +121,8 @@
     initAdvancedViewer();
     fileList = document.getElementById('file-list');
     fileItems = document.getElementById('file-items');
-    materialSelect = document.getElementById('material');
+    materialCategorySelect = document.getElementById('material-category');
+    materialSelect = document.getElementById('material-type');
     finishSelect = document.getElementById('finish');
     precisionSelect = document.getElementById('precision');
     toleranceSelect = document.getElementById('tolerance-standard');
@@ -65,6 +131,7 @@
     hasAssemblyRadios = document.querySelectorAll('input[name="has-assembly-mark"]');
     noteTextarea = document.getElementById('note');
     charCount = document.getElementById('char-count');
+    initializeMaterialSelectors();
     scaleSlider = document.getElementById('scale');
     scaleValue = document.getElementById('scale-value');
     qtyInput = document.getElementById('qty');
@@ -213,6 +280,16 @@
         }
       }
     });
+
+    if (materialCategorySelect) {
+      materialCategorySelect.addEventListener('change', () => {
+        const nextType = refreshMaterialTypeOptions(materialCategorySelect.value, null);
+        if (materialSelect && nextType) {
+          materialSelect.value = nextType;
+        }
+        updateCurrentFileParameters();
+      });
+    }
 
     // 单选按钮
     hasThreadRadios.forEach(radio => {
@@ -445,7 +522,8 @@
   function createDefaultFileConfig() {
     return {
       unit: 'mm',
-      material: 'PLA',
+      materialCategory: DEFAULT_MATERIAL_CATEGORY,
+      material: getDefaultMaterialType(DEFAULT_MATERIAL_CATEGORY),
       finish: 'Natural',
       precision: 'Standard',
       tolerance: 'GB/T 1804-2000 m级',
@@ -829,7 +907,11 @@
 
     // 更新配置
     fileData.config.unit = document.querySelector('input[name="unit"]:checked')?.value || 'mm';
-    fileData.config.material = materialSelect?.value || 'PLA';
+    const selectedCategory = materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY;
+    // 根据类别刷新材料选项，确保类型有效
+    const ensuredType = refreshMaterialTypeOptions(selectedCategory, materialSelect?.value);
+    fileData.config.materialCategory = selectedCategory;
+    fileData.config.material = ensuredType || getDefaultMaterialType(selectedCategory);
     fileData.config.finish = finishSelect?.value || 'Natural';
     fileData.config.precision = precisionSelect?.value || 'Standard';
     fileData.config.tolerance = toleranceSelect?.value || 'GB/T 1804-2000 m级';
@@ -980,8 +1062,13 @@
       radio.checked = radio.value === config.unit;
     });
 
-    // 更新其他参数
-    if (materialSelect) materialSelect.value = config.material;
+    // 更新材料选择（先类别再类型）
+    const resolvedCategory = config.materialCategory || getCategoryForMaterial(config.material) || materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY;
+    if (materialCategorySelect) {
+      materialCategorySelect.value = resolvedCategory;
+    }
+    const ensuredType = refreshMaterialTypeOptions(resolvedCategory, config.material || getDefaultMaterialType(resolvedCategory));
+    if (materialSelect && ensuredType) materialSelect.value = ensuredType;
     if (finishSelect) finishSelect.value = config.finish;
     if (precisionSelect) precisionSelect.value = config.precision;
     if (toleranceSelect) toleranceSelect.value = config.tolerance;
@@ -1172,6 +1259,7 @@
           { key: '客户邮箱', value: customerInfo.email },
           { key: '文件大小', value: (fileData.file.size / 1024 / 1024).toFixed(2) + ' MB' },
           { key: '材料', value: config.material || '未指定' },
+          { key: '材料大类', value: config.materialCategory || getCategoryForMaterial(config.material) || '未指定' },
           { key: '颜色与表面', value: config.finish || '自然色' },
           { key: '精度等级', value: config.precision || '标准 (±0.1mm)' },
           { key: '公差标准', value: config.tolerance || 'GB/T 1804-2000 m级' },
@@ -1283,6 +1371,7 @@
           '零件名称': fileData.file.name,
           '文件大小': (fileData.file.size / 1024 / 1024).toFixed(2) + ' MB',
           '材料': config.material || '未指定',
+          '材料大类': config.materialCategory || getCategoryForMaterial(config.material) || '未指定',
           '颜色': config.finish || '自然色',
           '精度': config.precision || '标准 (±0.1mm)',
           '公差': config.tolerance || 'GB/T 1804-2000 m级',
@@ -1623,6 +1712,7 @@
 
     // 更新自定义属性
     const propMaterial = document.getElementById('prop-material');
+    const propMaterialCategory = document.getElementById('prop-material-category');
     const propFinish = document.getElementById('prop-finish');
     const propPrecision = document.getElementById('prop-precision');
     const propTolerance = document.getElementById('prop-tolerance');
@@ -1634,6 +1724,8 @@
     const propFileName = document.getElementById('prop-fileName');
     const propFileSize = document.getElementById('prop-fileSize');
 
+    const resolvedCategory = currentFileData.config.materialCategory || getCategoryForMaterial(currentFileData.config.material) || '';
+    if (propMaterialCategory) propMaterialCategory.value = resolvedCategory;
     if (propMaterial) propMaterial.value = currentFileData.config.material || '';
     if (propFinish) propFinish.value = currentFileData.config.finish || '';
     if (propPrecision) propPrecision.value = currentFileData.config.precision || '';
@@ -1724,6 +1816,7 @@
     // 其他配置参数（可见）
     formData.append('properties[文件ID]', fileId);
     formData.append('properties[单位]', fileData.config.unit);
+    formData.append('properties[材料大类]', fileData.config.materialCategory || getCategoryForMaterial(fileData.config.material) || '');
     formData.append('properties[材料]', fileData.config.material);
     formData.append('properties[颜色与表面]', fileData.config.finish);
     formData.append('properties[精度等级]', fileData.config.precision);

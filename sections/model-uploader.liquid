@@ -617,16 +617,22 @@
 
         <!-- 材料选择 -->
         <div class="config-group">
-          <label class="config-label">材料</label>
-          <select id="material" class="config-select">
-            <option value="PLA">PLA</option>
-            <option value="ABS">ABS</option>
-            <option value="PETG">PETG</option>
-            <option value="TPU">TPU</option>
-            <option value="Nylon">尼龙</option>
-            <option value="Metal">金属</option>
-            <option value="Polyamide (SLS)">聚酰胺 (SLS)</option>
-        </select>
+          <label class="config-label">材料类别</label>
+          <select id="material-category" class="config-select">
+            <option value="铝合金">铝合金</option>
+            <option value="塑料">塑料</option>
+            <option value="铜合金">铜合金</option>
+            <option value="合金钢">合金钢</option>
+            <option value="不锈钢">不锈钢</option>
+          </select>
+        </div>
+
+        <div class="config-group">
+          <label class="config-label">材料类型</label>
+          <select id="material-type" class="config-select">
+            <option value="铝合金-6061">铝合金-6061</option>
+            <option value="铝合金-7075">铝合金-7075</option>
+          </select>
         </div>
 
         <!-- 颜色与表面处理 -->
@@ -910,6 +916,7 @@
         <!-- Hidden props to carry custom options to backend -->
         <input type="hidden" id="prop-unit" name="properties[单位]" value="mm">
         <input type="hidden" id="prop-material" name="properties[材料]" value="">
+        <input type="hidden" id="prop-material-category" name="properties[材料类别]" value="">
         <input type="hidden" id="prop-finish" name="properties[颜色与表面]" value="">
         <input type="hidden" id="prop-precision" name="properties[精度等级]" value="">
         <input type="hidden" id="prop-tolerance" name="properties[公差标准]" value="">
