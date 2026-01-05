@@ -56,7 +56,7 @@
   const DEFAULT_MATERIAL_CATEGORY = '铝合金';
 
   // 表面处理配置（按材料类别）
-  const SURFACE_PRIMARY_OPTIONS = [
+  const ALUMINUM_PRIMARY = [
     '喷砂+普通阳极氧化',
     '喷砂+导电氧化',
     '喷砂+硬质阳极氧化',
@@ -67,9 +67,16 @@
     '硬质阳极氧化(不喷砂)',
     '拉丝+普通阳极氧化'
   ];
-  const SURFACE_SECONDARY_OPTIONS = ['不做', '激光打标', 'UV打印'];
-  const SURFACE_COLOR_OPTIONS = ['本色', '黑色', '深空灰', '红色', '粉红色', '天蓝色', '深绿色', '沙金', '宝蓝色'];
-  const SURFACE_SHEEN_OPTIONS = ['哑光', '亮光'];
+  const ALUMINUM_SECONDARY = ['不做', '激光打标', 'UV打印'];
+  const ALUMINUM_COLORS = ['本色', '黑色', '深空灰', '红色', '粉红色', '天蓝色', '深绿色', '沙金', '宝蓝色'];
+
+  const PLASTIC_OIL_TYPES = ['工程塑料-ABS（白色）', '工程塑料-ABS（黑色）', '电木（黑色）', '电木（橘黄色）'];
+  const PLASTIC_UV_TYPES = ['赛钢-POM（白色）', '赛钢-POM（黑色）', '尼龙-PA6（白色）', '环氧板-FR4（绿色）'];
+  const PLASTIC_CLEAR_TYPES = ['亚克力', '聚碳酸酯-PC'];
+
+  const OIL_COLORS = ['黑色', '白色'];
+  const UV_COLORS = ['黑色', '白色', '红色', '橙色', '黄色', '绿色', '青色', '紫色'];
+  const SHEEN_OIL = ['哑光']; // 喷油仅哑光
 
   function getDefaultMaterialType(category) {
     const types = MATERIAL_TYPE_MAP[category] || [];
@@ -115,43 +122,106 @@
     }
   }
 
-  function getSurfaceProcessOptions() {
-    return SURFACE_PRIMARY_OPTIONS;
+  function getSurfaceRule(materialType, materialCategory) {
+    // 默认铝合金
+    const isPlastic = materialCategory === '塑料';
+    if (materialCategory === '铝合金') {
+      return {
+        primary: ALUMINUM_PRIMARY,
+        secondary: ALUMINUM_SECONDARY,
+        colorMap: {
+          default: ALUMINUM_COLORS,
+          'UV打印': UV_COLORS
+        },
+        sheenMap: {
+          // 无额外光泽选项
+        }
+      };
+    }
+
+    if (isPlastic) {
+      if (PLASTIC_OIL_TYPES.includes(materialType)) {
+        return {
+          primary: ['喷油', 'UV打印'],
+          secondary: ['不做', '喷油', 'UV打印'],
+          colorMap: {
+            '喷油': OIL_COLORS,
+            'UV打印': UV_COLORS
+          },
+          sheenMap: {
+            '喷油': SHEEN_OIL
+          }
+        };
+      }
+      if (PLASTIC_UV_TYPES.includes(materialType)) {
+        return {
+          primary: ['UV打印'],
+          secondary: ['不做', 'UV打印'],
+          colorMap: { 'UV打印': UV_COLORS },
+          sheenMap: {}
+        };
+      }
+      if (PLASTIC_CLEAR_TYPES.includes(materialType)) {
+        return {
+          primary: ['UV打印', '仅喷砂', '透明抛光'],
+          secondary: ['不做', 'UV打印'],
+          colorMap: {
+            'UV打印': UV_COLORS,
+            '仅喷砂': [],
+            '透明抛光': []
+          },
+          sheenMap: {}
+        };
+      }
+    }
+
+    // 其他材质 fallback：仅“不做”
+    return {
+      primary: ['不做'],
+      secondary: ['不做'],
+      colorMap: { default: [] },
+      sheenMap: {}
+    };
   }
 
-  function getSurfaceSecondaryOptions() {
-    return SURFACE_SECONDARY_OPTIONS;
-  }
-
-  function getSurfaceColorOptions() {
-    return SURFACE_COLOR_OPTIONS;
-  }
-
-  function normalizeSurfaceTreatments(treatments, surfaceEnabled = true) {
+  function normalizeSurfaceTreatments(treatments, surfaceEnabled = true, rule = getSurfaceRule(getDefaultMaterialType(DEFAULT_MATERIAL_CATEGORY), DEFAULT_MATERIAL_CATEGORY)) {
     if (!surfaceEnabled) return [];
-    const processes = getSurfaceProcessOptions();
-    const colors = getSurfaceColorOptions();
-    const secondaryProcesses = getSurfaceSecondaryOptions();
-    const defaultProcess = processes[0] || '';
-    const defaultColor = colors[0] || '';
-    const defaultSheen = SURFACE_SHEEN_OPTIONS[0];
+    const primaryList = rule.primary || ['不做'];
+    const secondaryList = rule.secondary || ['不做'];
+    const primaryColors = rule.colorMap?.default || [];
+    const secondaryColors = rule.colorMap?.default || [];
 
     const primary = treatments && treatments[0] ? treatments[0] : {};
     const secondary = treatments && treatments[1] ? treatments[1] : {};
 
+    const normPrimaryProcess = primaryList.includes(primary.process) ? primary.process : primaryList[0];
+    const normSecondaryProcess = secondaryList.includes(secondary.process) ? secondary.process : secondaryList[0];
+
+    const primaryColorOptions = rule.colorMap?.[normPrimaryProcess] ?? primaryColors;
+    const secondaryColorOptions = rule.colorMap?.[normSecondaryProcess] ?? secondaryColors;
+
+    const primarySheenOptions = rule.sheenMap?.[normPrimaryProcess] || [];
+    const secondarySheenOptions = rule.sheenMap?.[normSecondaryProcess] || [];
+
+    const normalizeColor = (val, opts) => (opts && opts.length ? (opts.includes(val) ? val : opts[0]) : '');
+    const normalizeSheen = (val, opts) => (opts && opts.length ? (opts.includes(val) ? val : opts[0]) : '');
+
     const normalizedPrimary = {
-      process: processes.includes(primary.process) ? primary.process : defaultProcess,
-      color: colors.includes(primary.color) ? primary.color : defaultColor,
-      sheen: SURFACE_SHEEN_OPTIONS.includes(primary.sheen) ? primary.sheen : defaultSheen,
-      allowedProcesses: processes
+      process: normPrimaryProcess,
+      color: normalizeColor(primary.color, primaryColorOptions),
+      sheen: normalizeSheen(primary.sheen, primarySheenOptions),
+      allowedProcesses: primaryList,
+      allowedColors: primaryColorOptions,
+      allowedSheen: primarySheenOptions
     };
 
-    const secondaryProcess = secondaryProcesses.includes(secondary.process) ? secondary.process : secondaryProcesses[0];
     const normalizedSecondary = {
-      process: secondaryProcess,
-      color: colors.includes(secondary.color) ? secondary.color : defaultColor,
-      sheen: SURFACE_SHEEN_OPTIONS.includes(secondary.sheen) ? secondary.sheen : defaultSheen,
-      allowedProcesses: secondaryProcesses
+      process: normSecondaryProcess,
+      color: normalizeColor(secondary.color, secondaryColorOptions),
+      sheen: normalizeSheen(secondary.sheen, secondarySheenOptions),
+      allowedProcesses: secondaryList,
+      allowedColors: secondaryColorOptions,
+      allowedSheen: secondarySheenOptions
     };
 
     return [normalizedPrimary, normalizedSecondary];
@@ -172,7 +242,8 @@
 
   function renderSurfaceTreatments(config) {
     if (!surfaceListContainer) return;
-    const treatments = normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false);
+    const rule = getSurfaceRule(config.material, config.materialCategory);
+    const treatments = normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false, rule);
     config.surfaceTreatments = treatments;
 
     surfaceListContainer.innerHTML = '';
@@ -192,7 +263,7 @@
 
       const processSelect = document.createElement('select');
       processSelect.className = 'config-select surface-process-select';
-      const processOptions = idx === 0 ? getSurfaceProcessOptions() : getSurfaceSecondaryOptions();
+      const processOptions = idx === 0 ? rule.primary : rule.secondary;
       processOptions.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt;
@@ -203,29 +274,36 @@
       processSelect.addEventListener('change', updateCurrentFileParameters);
       wrapper.appendChild(processSelect);
 
-      const colorSelect = document.createElement('select');
-      colorSelect.className = 'config-select surface-color-select';
-      getSurfaceColorOptions().forEach(opt => {
-        const option = document.createElement('option');
-        option.value = opt;
-        option.textContent = opt;
-        colorSelect.appendChild(option);
-      });
-      colorSelect.value = treatment.color;
-      colorSelect.addEventListener('change', updateCurrentFileParameters);
-      wrapper.appendChild(colorSelect);
+      const colorOptions = rule.colorMap?.[treatment.process] ?? rule.colorMap?.default ?? [];
+      let colorSelect = null;
+      if (colorOptions.length > 0) {
+        colorSelect = document.createElement('select');
+        colorSelect.className = 'config-select surface-color-select';
+        colorOptions.forEach(opt => {
+          const option = document.createElement('option');
+          option.value = opt;
+          option.textContent = opt;
+          colorSelect.appendChild(option);
+        });
+        colorSelect.value = treatment.color;
+        colorSelect.addEventListener('change', updateCurrentFileParameters);
+        wrapper.appendChild(colorSelect);
+      }
 
-      const sheenSelect = document.createElement('select');
-      sheenSelect.className = 'config-select surface-sheen-select';
-      SURFACE_SHEEN_OPTIONS.forEach(opt => {
-        const option = document.createElement('option');
-        option.value = opt;
-        option.textContent = opt;
-        sheenSelect.appendChild(option);
-      });
-      sheenSelect.value = treatment.sheen || SURFACE_SHEEN_OPTIONS[0];
-      sheenSelect.addEventListener('change', updateCurrentFileParameters);
-      wrapper.appendChild(sheenSelect);
+      const sheenOptions = rule.sheenMap?.[treatment.process] || [];
+      if (sheenOptions.length > 0) {
+        const sheenSelect = document.createElement('select');
+        sheenSelect.className = 'config-select surface-sheen-select';
+        sheenOptions.forEach(opt => {
+          const option = document.createElement('option');
+          option.value = opt;
+          option.textContent = opt;
+          sheenSelect.appendChild(option);
+        });
+        sheenSelect.value = sheenOptions.includes(treatment.sheen) ? treatment.sheen : sheenOptions[0];
+        sheenSelect.addEventListener('change', updateCurrentFileParameters);
+        wrapper.appendChild(sheenSelect);
+      }
 
       surfaceListContainer.appendChild(wrapper);
     });
@@ -234,19 +312,13 @@
   function collectSurfaceTreatmentsFromUI() {
     if (!surfaceListContainer) return [];
     const items = Array.from(surfaceListContainer.querySelectorAll('.surface-item'));
-    const list = items.map((item, idx) => {
-      const process = item.querySelector('.surface-process-select')?.value || (idx === 0 ? getSurfaceProcessOptions()[0] : getSurfaceSecondaryOptions()[0]);
-      const color = item.querySelector('.surface-color-select')?.value || getSurfaceColorOptions()[0];
-      const sheen = item.querySelector('.surface-sheen-select')?.value || SURFACE_SHEEN_OPTIONS[0];
+    return items.map((item, idx) => {
+      const process = item.querySelector('.surface-process-select')?.value || '';
+      const color = item.querySelector('.surface-color-select')?.value || '';
+      const sheen = item.querySelector('.surface-sheen-select')?.value || '';
       const allowed = Array.from(item.querySelectorAll('.surface-process-select option')).map(o => o.value);
-      return {
-        process,
-        color,
-        sheen,
-        allowedProcesses: allowed
-      };
+      return { process, color, sheen, allowedProcesses: allowed, idx };
     });
-    return list;
   }
   // 批量（选择集）——使用同一个"立即询价"按钮
   const selectedFileIds = new Set();
@@ -436,9 +508,19 @@
 
     if (materialCategorySelect) {
       materialCategorySelect.addEventListener('change', () => {
-        const nextType = refreshMaterialTypeOptions(materialCategorySelect.value, null);
+        const category = materialCategorySelect.value || DEFAULT_MATERIAL_CATEGORY;
+        const nextType = refreshMaterialTypeOptions(category, null);
         if (materialSelect && nextType) {
           materialSelect.value = nextType;
+        }
+        const fileData = fileManager.files.get(fileManager.currentFileId);
+        if (fileData) {
+          fileData.config.materialCategory = category;
+          fileData.config.material = nextType;
+          fileData.config.surfaceTreatments = normalizeSurfaceTreatments(fileData.config.surfaceTreatments, fileData.config.surfaceEnabled !== false, getSurfaceRule(nextType, category));
+          renderSurfaceTreatments(fileData.config);
+        } else {
+          renderSurfaceTreatments({ surfaceTreatments: [], surfaceEnabled: surfaceToggleYes?.checked, material: nextType, materialCategory: category });
         }
         updateCurrentFileParameters();
       });
@@ -1428,8 +1510,9 @@
       
       // 获取文件配置
       const config = fileData.config || {};
+      const rule = getSurfaceRule(config.material, config.materialCategory);
       const surfaceText = stringifySurfaceTreatments(
-        normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false),
+        normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false, rule),
         config.surfaceEnabled !== false
       );
       
@@ -1561,8 +1644,9 @@
       // 获取文件配置
       const config = fileData.config || {};
       console.log('文件配置:', config);
+      const rule = getSurfaceRule(config.material, config.materialCategory);
       const surfaceText = stringifySurfaceTreatments(
-        normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false),
+        normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false, rule),
         config.surfaceEnabled !== false
       );
       
@@ -1937,8 +2021,9 @@
     const resolvedCategory = currentFileData.config.materialCategory || getCategoryForMaterial(currentFileData.config.material) || '';
     if (propMaterialCategory) propMaterialCategory.value = resolvedCategory;
     if (propMaterial) propMaterial.value = currentFileData.config.material || '';
+    const rule = getSurfaceRule(currentFileData.config.material, currentFileData.config.materialCategory);
     if (propSurface) propSurface.value = stringifySurfaceTreatments(
-      normalizeSurfaceTreatments(currentFileData.config.surfaceTreatments, currentFileData.config.surfaceEnabled !== false),
+      normalizeSurfaceTreatments(currentFileData.config.surfaceTreatments, currentFileData.config.surfaceEnabled !== false, rule),
       currentFileData.config.surfaceEnabled !== false
     );
     if (propPrecision) propPrecision.value = currentFileData.config.precision || '';
@@ -1992,8 +2077,9 @@
 
   // 添加单个文件到购物车
   async function addFileToCart(fileId, fileData) {
+      const rule = getSurfaceRule(fileData.config.material, fileData.config.materialCategory);
       const surfaceText = stringifySurfaceTreatments(
-        normalizeSurfaceTreatments(fileData.config.surfaceTreatments, fileData.config.surfaceEnabled !== false),
+        normalizeSurfaceTreatments(fileData.config.surfaceTreatments, fileData.config.surfaceEnabled !== false, rule),
         fileData.config.surfaceEnabled !== false
       );
 
