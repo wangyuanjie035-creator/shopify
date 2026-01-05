@@ -635,19 +635,11 @@
           </select>
         </div>
 
-        <!-- 颜色与表面处理 -->
+        <!-- 表面处理（支持多个） -->
         <div class="config-group">
-          <label class="config-label">颜色与表面</label>
-          <select id="finish" class="config-select">
-            <option value="Natural">自然色</option>
-            <option value="White">白色</option>
-            <option value="Black">黑色</option>
-            <option value="Red">红色</option>
-            <option value="Blue">蓝色</option>
-            <option value="Green">绿色</option>
-            <option value="Polished">抛光</option>
-            <option value="Matte">哑光</option>
-        </select>
+          <label class="config-label">表面处理</label>
+          <div id="surface-list"></div>
+          <button type="button" id="add-surface-btn" class="btn btn-secondary" style="margin-top:8px;">点击此处可添加多个表面处理</button>
         </div>
 
         <!-- 精度等级 -->
@@ -917,7 +909,7 @@
         <input type="hidden" id="prop-unit" name="properties[单位]" value="mm">
         <input type="hidden" id="prop-material" name="properties[材料]" value="">
         <input type="hidden" id="prop-material-category" name="properties[材料类别]" value="">
-        <input type="hidden" id="prop-finish" name="properties[颜色与表面]" value="">
+        <input type="hidden" id="prop-surface" name="properties[表面处理]" value="">
         <input type="hidden" id="prop-precision" name="properties[精度等级]" value="">
         <input type="hidden" id="prop-tolerance" name="properties[公差标准]" value="">
     <input type="hidden" id="prop-roughness" name="properties[表面粗糙度]" value="">

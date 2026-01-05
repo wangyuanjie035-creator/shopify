@@ -27,7 +27,7 @@
   // DOM 元素
   let fileInput, dropzone, modelViewer, viewerContainer;
   let loadingIndicator, errorMessage, fileList, fileItems;
-  let materialCategorySelect, materialSelect, finishSelect, scaleSlider, scaleValue;
+  let materialCategorySelect, materialSelect, surfaceListContainer, addSurfaceBtn, scaleSlider, scaleValue;
   let qtyInput, qtyMinus, qtyPlus;
   let dimensionsDisplay, dimensionsValue;
   let addToCartBtn, form;
@@ -54,6 +54,29 @@
     '不锈钢': ['SUS304']
   };
   const DEFAULT_MATERIAL_CATEGORY = '铝合金';
+
+  // 表面处理配置（按材料类别）
+  const SURFACE_PROCESS_OPTIONS = {
+    '铝合金': [
+      '喷砂+普通阳极氧化',
+      '喷砂+导电氧化',
+      '喷砂+硬质阳极氧化',
+      '激光打标',
+      '拉丝',
+      'UV打印',
+      '仅喷砂',
+      '普通阳极氧化(不喷砂)',
+      '导电氧化(不喷砂)',
+      '硬质阳极氧化(不喷砂)',
+      '拉丝+普通阳极氧化'
+    ],
+    default: ['无需表面处理']
+  };
+
+  const SURFACE_COLOR_OPTIONS = {
+    '铝合金': ['本色', '黑色', '深空灰', '红色', '粉红色', '天蓝色', '深绿色', '沙金', '宝蓝色'],
+    default: ['默认']
+  };
 
   function getDefaultMaterialType(category) {
     const types = MATERIAL_TYPE_MAP[category] || [];
@@ -98,6 +121,117 @@
       materialSelect.value = normalizedType;
     }
   }
+
+  function getSurfaceProcessOptions(category) {
+    return SURFACE_PROCESS_OPTIONS[category] || SURFACE_PROCESS_OPTIONS.default;
+  }
+
+  function getSurfaceColorOptions(category) {
+    return SURFACE_COLOR_OPTIONS[category] || SURFACE_COLOR_OPTIONS.default;
+  }
+
+  function normalizeSurfaceTreatments(category, treatments) {
+    const processes = getSurfaceProcessOptions(category);
+    const colors = getSurfaceColorOptions(category);
+    const defaultProcess = processes[0] || '';
+    const defaultColor = colors[0] || '';
+    const source = (treatments && treatments.length > 0) ? treatments : [{ process: defaultProcess, color: defaultColor }];
+    return source.map(t => ({
+      process: processes.includes(t.process) ? t.process : defaultProcess,
+      color: colors.includes(t.color) ? t.color : defaultColor
+    }));
+  }
+
+  function stringifySurfaceTreatments(treatments) {
+    if (!treatments || treatments.length === 0) return '';
+    return treatments.map(t => {
+      if (t.color) return `${t.process}（${t.color}）`;
+      return t.process || '';
+    }).filter(Boolean).join(' | ');
+  }
+
+  function renderSurfaceTreatments(config, category) {
+    if (!surfaceListContainer) return;
+    const treatments = normalizeSurfaceTreatments(category, config.surfaceTreatments);
+    config.surfaceTreatments = treatments;
+
+    surfaceListContainer.innerHTML = '';
+
+    treatments.forEach((treatment, idx) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'surface-item';
+      wrapper.style.display = 'flex';
+      wrapper.style.gap = '8px';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.marginBottom = '8px';
+
+      const label = document.createElement('div');
+      label.textContent = `表面处理${idx + 1}:`;
+      label.style.minWidth = '88px';
+      wrapper.appendChild(label);
+
+      const processSelect = document.createElement('select');
+      processSelect.className = 'config-select surface-process-select';
+      getSurfaceProcessOptions(category).forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt;
+        option.textContent = opt;
+        processSelect.appendChild(option);
+      });
+      processSelect.value = treatment.process;
+      processSelect.addEventListener('change', updateCurrentFileParameters);
+      wrapper.appendChild(processSelect);
+
+      const colorSelect = document.createElement('select');
+      colorSelect.className = 'config-select surface-color-select';
+      getSurfaceColorOptions(category).forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt;
+        option.textContent = opt;
+        colorSelect.appendChild(option);
+      });
+      colorSelect.value = treatment.color;
+      colorSelect.addEventListener('change', updateCurrentFileParameters);
+      wrapper.appendChild(colorSelect);
+
+      if (idx > 0) {
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = '－';
+        removeBtn.className = 'btn btn-secondary';
+        removeBtn.style.padding = '6px 10px';
+        removeBtn.addEventListener('click', () => {
+          const fileData = fileManager.files.get(fileManager.currentFileId);
+          if (!fileData) return;
+          const latest = collectSurfaceTreatmentsFromUI(category).filter((_, i) => i !== idx);
+          fileData.config.surfaceTreatments = normalizeSurfaceTreatments(category, latest);
+          renderSurfaceTreatments(fileData.config, category);
+          updateCurrentFileParameters();
+        });
+        wrapper.appendChild(removeBtn);
+      }
+
+      surfaceListContainer.appendChild(wrapper);
+    });
+  }
+
+  function collectSurfaceTreatmentsFromUI(category) {
+    if (!surfaceListContainer) return [];
+    const processes = getSurfaceProcessOptions(category);
+    const colors = getSurfaceColorOptions(category);
+    const defaultProcess = processes[0] || '';
+    const defaultColor = colors[0] || '';
+    const items = Array.from(surfaceListContainer.querySelectorAll('.surface-item'));
+    const list = items.map(item => {
+      const process = item.querySelector('.surface-process-select')?.value || defaultProcess;
+      const color = item.querySelector('.surface-color-select')?.value || defaultColor;
+      return {
+        process: processes.includes(process) ? process : defaultProcess,
+        color: colors.includes(color) ? color : defaultColor
+      };
+    });
+    return list.length > 0 ? list : [{ process: defaultProcess, color: defaultColor }];
+  }
   // 批量（选择集）——使用同一个"立即询价"按钮
   const selectedFileIds = new Set();
   let bulkAddBtn = null; // 不再渲染独立按钮，仅保留占位以兼容旧代码
@@ -123,7 +257,8 @@
     fileItems = document.getElementById('file-items');
     materialCategorySelect = document.getElementById('material-category');
     materialSelect = document.getElementById('material-type');
-    finishSelect = document.getElementById('finish');
+    surfaceListContainer = document.getElementById('surface-list');
+    addSurfaceBtn = document.getElementById('add-surface-btn');
     precisionSelect = document.getElementById('precision');
     toleranceSelect = document.getElementById('tolerance-standard');
     roughnessSelect = document.getElementById('surface-roughness');
@@ -132,6 +267,7 @@
     noteTextarea = document.getElementById('note');
     charCount = document.getElementById('char-count');
     initializeMaterialSelectors();
+    renderSurfaceTreatments({ surfaceTreatments: [] }, materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY);
     scaleSlider = document.getElementById('scale');
     scaleValue = document.getElementById('scale-value');
     qtyInput = document.getElementById('qty');
@@ -267,7 +403,7 @@
   // 绑定参数变化事件
   function bindParameterEvents() {
     const parameterElements = [
-      materialSelect, finishSelect, precisionSelect, toleranceSelect, roughnessSelect,
+      materialSelect, precisionSelect, toleranceSelect, roughnessSelect,
       scaleSlider, qtyInput, noteTextarea
     ];
 
@@ -299,6 +435,29 @@
     hasAssemblyRadios.forEach(radio => {
       radio.addEventListener('change', updateCurrentFileParameters);
     });
+
+    if (addSurfaceBtn) {
+      addSurfaceBtn.addEventListener('click', () => {
+        const fileData = fileManager.files.get(fileManager.currentFileId);
+        const category = materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY;
+        const processes = getSurfaceProcessOptions(category);
+        const colors = getSurfaceColorOptions(category);
+        const defaultProcess = processes[0] || '';
+        const defaultColor = colors[0] || '';
+        if (fileData) {
+          // 先保存当前UI选择，避免覆盖
+          fileData.config.surfaceTreatments = collectSurfaceTreatmentsFromUI(category);
+          fileData.config.surfaceTreatments.push({ process: defaultProcess, color: defaultColor });
+          renderSurfaceTreatments(fileData.config, category);
+          updateCurrentFileParameters();
+        } else if (surfaceListContainer) {
+          // 无文件时仅更新UI
+          const current = collectSurfaceTreatmentsFromUI(category);
+          current.push({ process: defaultProcess, color: defaultColor });
+          renderSurfaceTreatments({ surfaceTreatments: current }, category);
+        }
+      });
+    }
 
     // 备注字符计数
     if (noteTextarea) {
@@ -524,7 +683,7 @@
       unit: 'mm',
       materialCategory: DEFAULT_MATERIAL_CATEGORY,
       material: getDefaultMaterialType(DEFAULT_MATERIAL_CATEGORY),
-      finish: 'Natural',
+      surfaceTreatments: normalizeSurfaceTreatments(DEFAULT_MATERIAL_CATEGORY, null),
       precision: 'Standard',
       tolerance: 'GB/T 1804-2000 m级',
       roughness: 'Ra3.2',
@@ -912,7 +1071,12 @@
     const ensuredType = refreshMaterialTypeOptions(selectedCategory, materialSelect?.value);
     fileData.config.materialCategory = selectedCategory;
     fileData.config.material = ensuredType || getDefaultMaterialType(selectedCategory);
-    fileData.config.finish = finishSelect?.value || 'Natural';
+    // 表面处理（可多选）
+    fileData.config.surfaceTreatments = normalizeSurfaceTreatments(
+      selectedCategory,
+      collectSurfaceTreatmentsFromUI(selectedCategory)
+    );
+    renderSurfaceTreatments(fileData.config, selectedCategory);
     fileData.config.precision = precisionSelect?.value || 'Standard';
     fileData.config.tolerance = toleranceSelect?.value || 'GB/T 1804-2000 m级';
     fileData.config.roughness = roughnessSelect?.value || 'Ra3.2';
@@ -1069,7 +1233,7 @@
     }
     const ensuredType = refreshMaterialTypeOptions(resolvedCategory, config.material || getDefaultMaterialType(resolvedCategory));
     if (materialSelect && ensuredType) materialSelect.value = ensuredType;
-    if (finishSelect) finishSelect.value = config.finish;
+    renderSurfaceTreatments(config, resolvedCategory);
     if (precisionSelect) precisionSelect.value = config.precision;
     if (toleranceSelect) toleranceSelect.value = config.tolerance;
     if (roughnessSelect) roughnessSelect.value = config.roughness;
@@ -1230,6 +1394,9 @@
       
       // 获取文件配置
       const config = fileData.config || {};
+      const surfaceText = stringifySurfaceTreatments(
+        normalizeSurfaceTreatments(config.materialCategory || DEFAULT_MATERIAL_CATEGORY, config.surfaceTreatments)
+      );
       
       // 上传文件到本地存储
       let realFileId = null;
@@ -1260,7 +1427,7 @@
           { key: '文件大小', value: (fileData.file.size / 1024 / 1024).toFixed(2) + ' MB' },
           { key: '材料', value: config.material || '未指定' },
           { key: '材料大类', value: config.materialCategory || getCategoryForMaterial(config.material) || '未指定' },
-          { key: '颜色与表面', value: config.finish || '自然色' },
+          { key: '表面处理', value: surfaceText || '未指定' },
           { key: '精度等级', value: config.precision || '标准 (±0.1mm)' },
           { key: '公差标准', value: config.tolerance || 'GB/T 1804-2000 m级' },
           { key: '表面粗糙度', value: config.roughness || 'Ra3.2' },
@@ -1359,6 +1526,9 @@
       // 获取文件配置
       const config = fileData.config || {};
       console.log('文件配置:', config);
+      const surfaceText = stringifySurfaceTreatments(
+        normalizeSurfaceTreatments(config.materialCategory || DEFAULT_MATERIAL_CATEGORY, config.surfaceTreatments)
+      );
       
       // 创建购物车项目
       const cartItem = {
@@ -1372,7 +1542,7 @@
           '文件大小': (fileData.file.size / 1024 / 1024).toFixed(2) + ' MB',
           '材料': config.material || '未指定',
           '材料大类': config.materialCategory || getCategoryForMaterial(config.material) || '未指定',
-          '颜色': config.finish || '自然色',
+          '表面处理': surfaceText || '未指定',
           '精度': config.precision || '标准 (±0.1mm)',
           '公差': config.tolerance || 'GB/T 1804-2000 m级',
           '粗糙度': config.roughness || 'Ra3.2',
@@ -1455,6 +1625,9 @@
       // 获取文件配置
       const config = fileData.config || {};
       console.log('文件配置:', config);
+      const surfaceText = stringifySurfaceTreatments(
+        normalizeSurfaceTreatments(config.materialCategory || DEFAULT_MATERIAL_CATEGORY, config.surfaceTreatments)
+      );
       
       // 准备API请求数据
       const requestData = {
@@ -1464,7 +1637,7 @@
         customerName: customerInfo.name,
         quantity: parseInt(config.quantity || 1),
         material: config.material || '未指定',
-        color: config.finish || '自然色',
+        surfaceTreatment: surfaceText || '待确认',
         precision: config.precision || '标准 (±0.1mm)',
         tolerance: config.tolerance || 'GB/T 1804-2000 m级',
         roughness: config.roughness || 'Ra3.2',
@@ -1713,7 +1886,7 @@
     // 更新自定义属性
     const propMaterial = document.getElementById('prop-material');
     const propMaterialCategory = document.getElementById('prop-material-category');
-    const propFinish = document.getElementById('prop-finish');
+    const propSurface = document.getElementById('prop-surface');
     const propPrecision = document.getElementById('prop-precision');
     const propTolerance = document.getElementById('prop-tolerance');
     const propRoughness = document.getElementById('prop-roughness');
@@ -1727,7 +1900,9 @@
     const resolvedCategory = currentFileData.config.materialCategory || getCategoryForMaterial(currentFileData.config.material) || '';
     if (propMaterialCategory) propMaterialCategory.value = resolvedCategory;
     if (propMaterial) propMaterial.value = currentFileData.config.material || '';
-    if (propFinish) propFinish.value = currentFileData.config.finish || '';
+    if (propSurface) propSurface.value = stringifySurfaceTreatments(
+      normalizeSurfaceTreatments(resolvedCategory, currentFileData.config.surfaceTreatments)
+    );
     if (propPrecision) propPrecision.value = currentFileData.config.precision || '';
     if (propTolerance) propTolerance.value = currentFileData.config.tolerance || '';
     if (propRoughness) propRoughness.value = currentFileData.config.roughness || '';
@@ -1779,6 +1954,10 @@
 
   // 添加单个文件到购物车
   async function addFileToCart(fileId, fileData) {
+    const surfaceText = stringifySurfaceTreatments(
+      normalizeSurfaceTreatments(fileData.config.materialCategory || DEFAULT_MATERIAL_CATEGORY, fileData.config.surfaceTreatments)
+    );
+
     // 获取或创建变体ID
     let variantId = getDefaultVariantId();
     
@@ -1818,7 +1997,7 @@
     formData.append('properties[单位]', fileData.config.unit);
     formData.append('properties[材料大类]', fileData.config.materialCategory || getCategoryForMaterial(fileData.config.material) || '');
     formData.append('properties[材料]', fileData.config.material);
-    formData.append('properties[颜色与表面]', fileData.config.finish);
+    formData.append('properties[表面处理]', surfaceText);
     formData.append('properties[精度等级]', fileData.config.precision);
     formData.append('properties[公差标准]', fileData.config.tolerance);
     formData.append('properties[表面粗糙度]', fileData.config.roughness);
@@ -3064,7 +3243,7 @@
         quantity: 1,
         material: '待确认',
         precision: '待确认',
-        finish: '待确认',
+        surfaceTreatment: '待确认',
         scale: 100,
         note: '客户询价请求'
       };
