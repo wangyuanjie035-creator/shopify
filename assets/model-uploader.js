@@ -77,8 +77,6 @@
   const OIL_COLORS = ['黑色', '白色'];
   const UV_COLORS = ['黑色', '白色', '红色', '橙色', '黄色', '绿色', '青色', '紫色'];
   const SHEEN_OIL = ['哑光']; // 喷油仅哑光
-  const normalizeCategory = (cat) => (cat || '').trim();
-  const normalizeType = (type) => (type || '').trim().replace(/\(/g, '（').replace(/\)/g, '）');
 
   function getDefaultMaterialType(category) {
     const types = MATERIAL_TYPE_MAP[category] || [];
@@ -125,11 +123,9 @@
   }
 
   function getSurfaceRule(materialType, materialCategory) {
-    const mCat = normalizeCategory(materialCategory);
-    const mType = normalizeType(materialType);
     // 默认铝合金
-    const isPlastic = mCat === '塑料';
-    if (mCat === '铝合金') {
+    const isPlastic = materialCategory === '塑料';
+    if (materialCategory === '铝合金') {
       return {
         primary: ALUMINUM_PRIMARY,
         secondary: ALUMINUM_SECONDARY,
@@ -144,7 +140,7 @@
     }
 
     if (isPlastic) {
-      if (PLASTIC_OIL_TYPES.includes(mType)) {
+      if (PLASTIC_OIL_TYPES.includes(materialType)) {
         return {
           primary: ['喷油', 'UV打印'],
           secondary: ['不做', '喷油', 'UV打印'],
@@ -157,7 +153,7 @@
           }
         };
       }
-      if (PLASTIC_UV_TYPES.includes(mType)) {
+      if (PLASTIC_UV_TYPES.includes(materialType)) {
         return {
           primary: ['UV打印'],
           secondary: ['不做', 'UV打印'],
@@ -166,7 +162,6 @@
         };
       }
       if (PLASTIC_CLEAR_TYPES.includes(materialType)) {
-      if (PLASTIC_CLEAR_TYPES.includes(mType)) {
         return {
           primary: ['UV打印', '仅喷砂', '透明抛光'],
           secondary: ['不做', 'UV打印'],
@@ -513,20 +508,19 @@
 
     if (materialCategorySelect) {
       materialCategorySelect.addEventListener('change', () => {
-        const category = normalizeCategory(materialCategorySelect.value || DEFAULT_MATERIAL_CATEGORY);
+        const category = materialCategorySelect.value || DEFAULT_MATERIAL_CATEGORY;
         const nextType = refreshMaterialTypeOptions(category, null);
-        const nextTypeNorm = normalizeType(nextType);
         if (materialSelect && nextType) {
           materialSelect.value = nextType;
         }
         const fileData = fileManager.files.get(fileManager.currentFileId);
         if (fileData) {
           fileData.config.materialCategory = category;
-          fileData.config.material = nextTypeNorm;
-          fileData.config.surfaceTreatments = normalizeSurfaceTreatments(fileData.config.surfaceTreatments, fileData.config.surfaceEnabled !== false, getSurfaceRule(nextTypeNorm, category));
+          fileData.config.material = nextType;
+          fileData.config.surfaceTreatments = normalizeSurfaceTreatments(fileData.config.surfaceTreatments, fileData.config.surfaceEnabled !== false, getSurfaceRule(nextType, category));
           renderSurfaceTreatments(fileData.config);
         } else {
-          renderSurfaceTreatments({ surfaceTreatments: [], surfaceEnabled: surfaceToggleYes?.checked, material: nextTypeNorm, materialCategory: category });
+          renderSurfaceTreatments({ surfaceTreatments: [], surfaceEnabled: surfaceToggleYes?.checked, material: nextType, materialCategory: category });
         }
         updateCurrentFileParameters();
       });
@@ -1181,10 +1175,9 @@
 
     // 更新配置
     fileData.config.unit = document.querySelector('input[name="unit"]:checked')?.value || 'mm';
-    const selectedCategory = normalizeCategory(materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY);
-    const selectedType = normalizeType(materialSelect?.value || fileData.config.material);
+    const selectedCategory = materialCategorySelect?.value || DEFAULT_MATERIAL_CATEGORY;
     // 根据类别刷新材料选项，确保类型有效
-    const ensuredType = normalizeType(refreshMaterialTypeOptions(selectedCategory, selectedType));
+    const ensuredType = refreshMaterialTypeOptions(selectedCategory, materialSelect?.value);
     fileData.config.materialCategory = selectedCategory;
     fileData.config.material = ensuredType || getDefaultMaterialType(selectedCategory);
     const rule = getSurfaceRule(fileData.config.material, fileData.config.materialCategory);
@@ -1229,6 +1222,9 @@
     // 当选择有螺纹/装配标记时，必须有对应2D
     if (fileData && fileData.config) {
       const need2D = fileData.config.hasThread === 'yes' || fileData.config.hasAssembly === 'yes';
+      const rule = getSurfaceRule(fileData.config.material, fileData.config.materialCategory);
+      const surfaceTexts = normalizeSurfaceTreatments(fileData.config.surfaceTreatments, fileData.config.surfaceEnabled !== false, rule);
+      const hasUV = (fileData.config.surfaceEnabled !== false) && surfaceTexts.some(t => t.process === 'UV打印');
       if (need2D) {
         const has2D = hasCorresponding2DFile(fileManager.currentFileId);
         if (!has2D) {
@@ -1236,9 +1232,11 @@
           errors.push(`❌ 文件"${fileData.file.name}"已选择有${reason}，但缺少对应的2D图纸（DWG/DXF/PDF）`);
         }
       }
-      const uvNeeded = (fileData.config.surfaceEnabled !== false) && (fileData.config.surfaceTreatments || []).some(t => normalizeType(t.process) === 'UV打印');
-      if (uvNeeded && !hasCorresponding2DFile(fileManager.currentFileId)) {
-        errors.push(`❌ 文件"${fileData.file.name}"选择了UV打印，但缺少对应的2D图纸（DWG/DXF/PDF）。`);
+      if (hasUV) {
+        const has2D = hasCorresponding2DFile(fileManager.currentFileId);
+        if (!has2D) {
+          errors.push(`❌ 文件"${fileData.file.name}"选择了UV打印，但缺少对应的2D图纸（DWG/DXF/PDF）。`);
+        }
       }
     }
 
