@@ -1582,56 +1582,60 @@
     }
   }
 
-  // 提交到草稿订单（第一步：立即询价）
+  // 提交到草稿订单（第一步：立即询价，支持 3D + 2D 多文件）
   async function submitToDraftOrder() {
     console.log('📝 开始创建草稿订单...');
-    
+
     // 获取客户信息
     const customerInfo = await getCustomerInfo();
     console.log('客户信息:', customerInfo);
-    
+
     // 准备线上项目（Line Items）
     const lineItems = [];
-    
-    // 处理每个选中的文件
+
+    // 处理每个选中的 3D 文件
     for (const fileId of selectedFileIds) {
       const fileData = fileManager.files.get(fileId);
-      if (!fileData) continue;
-      
-      console.log('处理文件:', fileData.file.name);
-      
-      // 获取文件配置
+      if (!fileData || !is3DFile(fileData.file.name)) continue;
+
+      console.log('处理 3D 文件:', fileData.file.name);
+
       const config = fileData.config || {};
       const rule = getSurfaceRule(config.material, config.materialCategory);
       const surfaceText = stringifySurfaceTreatments(
-        normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false, rule),
+        normalizeSurfaceTreatments(
+          config.surfaceTreatments,
+          config.surfaceEnabled !== false,
+          rule
+        ),
         config.surfaceEnabled !== false
       );
-      
-      // 上传文件到本地存储
-      let realFileId = null;
+
+      // 1) 为 3D 文件上传到本地存储，生成 3D 文件ID
+      let threeDFileId = null;
       try {
         if (window.fileStorageManager) {
-          realFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          await window.fileStorageManager.uploadFile(fileData.file, realFileId);
-          console.log('✅ 文件上传成功，ID:', realFileId);
+          threeDFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          await window.fileStorageManager.uploadFile(fileData.file, threeDFileId);
+          console.log('✅ 3D 文件上传成功，ID:', threeDFileId);
         } else {
-          console.warn('⚠️ 文件存储管理器未加载，使用虚拟文件ID');
-          realFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          console.warn('⚠️ 文件存储管理器未加载，使用虚拟 3D 文件ID');
+          threeDFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         }
       } catch (uploadError) {
-        console.error('❌ 文件上传失败:', uploadError);
-        realFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        console.error('❌ 3D 文件上传失败:', uploadError);
+        threeDFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       }
-      
-      // 创建线上项目（使用虚拟产品）
+
+      // 1.1 为 3D 创建 lineItem
       lineItems.push({
         title: fileData.file.name,
-        quantity: parseInt(config.quantity || 1),
-        price: 0, // 初始价格为0，等待报价
+        quantity: parseInt(config.quantity || 1, 10) || 1,
+        price: 0,
         requires_shipping: false,
         customAttributes: [
           { key: 'Order Type', value: '3D Model Quote' },
+          { key: '文件类型', value: '3D' },
           { key: '客户姓名', value: customerInfo.name },
           { key: '客户邮箱', value: customerInfo.email },
           { key: '文件大小', value: (fileData.file.size / 1024 / 1024).toFixed(2) + ' MB' },
@@ -1644,39 +1648,78 @@
           { key: '是否有装配关系', value: config.hasAssembly || 'no' },
           { key: '备注', value: config.note || '' },
           { key: 'Quote Status', value: 'Pending' },
-          { key: '文件ID', value: realFileId },
+          { key: '文件ID', value: threeDFileId },
           { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
         ]
       });
+
+      // 2) 为当前 3D 文件附加对应的 2D 图纸
+      const twoDFiles = getCorresponding2DFiles(fileId) || [];
+      console.log(`3D 文件 ${fileData.file.name} 对应的 2D 文件:`, twoDFiles.map(f => f.name));
+
+      for (const twoD of twoDFiles) {
+        const twoDData = fileManager.files.get(twoD.id);
+        if (!twoDData || !twoDData.file) continue;
+
+        let twoDFileId = null;
+        try {
+          if (window.fileStorageManager) {
+            twoDFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            await window.fileStorageManager.uploadFile(twoDData.file, twoDFileId);
+            console.log('✅ 2D 文件上传成功，ID:', twoDFileId, '名称:', twoDData.file.name);
+          } else {
+            console.warn('⚠️ 文件存储管理器未加载，使用虚拟 2D 文件ID');
+            twoDFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          }
+        } catch (err) {
+          console.error('❌ 2D 文件上传失败:', err);
+          twoDFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        }
+
+        lineItems.push({
+          title: twoDData.file.name,
+          quantity: 1,
+          price: 0,
+          requires_shipping: false,
+          customAttributes: [
+            { key: 'Order Type', value: '2D Drawing' },
+            { key: '文件类型', value: '2D' },
+            { key: '关联3D文件', value: fileData.file.name },
+            { key: '客户姓名', value: customerInfo.name },
+            { key: '客户邮箱', value: customerInfo.email },
+            { key: '文件大小', value: (twoDData.file.size / 1024 / 1024).toFixed(2) + ' MB' },
+            { key: '备注', value: config.note || '' },
+            { key: '文件ID', value: twoDFileId },
+            { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
+          ]
+        });
+      }
     }
-    
-    console.log('准备创建草稿订单，线上项目:', lineItems);
-    
-    // 调用Vercel API创建草稿订单
+
+    console.log('准备创建草稿订单，线上项目（3D + 2D）:', lineItems);
+
     const API_BASE = 'https://shopify-13s4.vercel.app/api';
-    
-    // 获取文件数据
+
+    // 只用第一个 3D 文件的数据作为主文件
     const fileUrl = lineItems.length > 0 ? await getFirstFileDataUrl() : null;
-    console.log('文件数据长度:', fileUrl ? fileUrl.length : 0);
-    
-    // 获取第一个文件的名称
+    console.log('首个 3D 文件数据长度:', fileUrl ? fileUrl.length : 0);
+
     const firstFileId = Array.from(selectedFileIds)[0];
     const firstFileName = firstFileId ? fileManager.files.get(firstFileId)?.file?.name : null;
-    
-    // 验证客户信息
+
     if (!customerInfo || !customerInfo.email || !customerInfo.name) {
       console.error('❌ 客户信息不完整:', customerInfo);
       throw new Error('客户信息不完整，请确保已正确登录或输入客户信息');
     }
-    
+
     const requestBody = {
       customerName: customerInfo.name,
       customerEmail: customerInfo.email,
       fileName: firstFileName || 'model.stl',
-      lineItems: lineItems,
-      fileUrl: fileUrl
+      lineItems,
+      fileUrl
     };
-    
+
     console.log('📤 请求体准备完成:', {
       customerName: requestBody.customerName,
       customerEmail: requestBody.customerEmail,
@@ -1684,7 +1727,7 @@
       lineItemsCount: requestBody.lineItems.length,
       hasFileData: !!requestBody.fileUrl
     });
-    
+
     const response = await fetch(`${API_BASE}/submit-quote-real`, {
       method: 'POST',
       headers: {
@@ -1693,23 +1736,23 @@
       },
       body: JSON.stringify(requestBody)
     });
-    
+
     console.log('API响应状态:', response.status);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ 创建草稿订单失败:', response.status, errorText);
       throw new Error(`创建草稿订单失败: ${response.status} - ${errorText}`);
     }
-    
+
     const result = await response.json();
     console.log('✅ 草稿订单创建成功:', result);
-    
+
     if (!result.draftOrderId) {
       console.error('❌ API返回结果中没有draftOrderId:', result);
       throw new Error('API返回结果中没有draftOrderId');
     }
-    
+
     return result.draftOrderId;
   }
 
