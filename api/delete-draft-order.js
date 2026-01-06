@@ -25,7 +25,7 @@
  */
 
 function parseAdminList() {
-  const raw = process.env.ADMIN_EMAIL_WHITELIST || 'jonathan.wang@sainstore.com','issac.yu@sainstore.com';
+  const raw = process.env.ADMIN_EMAIL_WHITELIST || 'jonathan.wang@sainstore.com' || 'issac.yu@sainstore.com';
   return raw.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 }
 
