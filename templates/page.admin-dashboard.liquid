@@ -1188,15 +1188,19 @@
               <h4 style="margin: 0 0 12px 0; color: #333;">加工参数</h4>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
                 <div><strong>数量:</strong> ${detailedParams.quantity || detailedParams['数量'] || 1}</div>
-                <div><strong>单位:</strong> ${detailedParams.unit || detailedParams['单位'] || '件'}</div>
-                <div><strong>材料:</strong> ${detailedParams.material || detailedParams['材料'] || '未指定'}</div>
-                <div><strong>表面处理:</strong> ${detailedParams.finish || detailedParams['颜色与表面'] || '未指定'}</div>
-                <div><strong>精度等级:</strong> ${detailedParams.precision || detailedParams['精度等级'] || '未指定'}</div>
-                <div><strong>公差标准:</strong> ${detailedParams.tolerance || detailedParams['公差标准'] || '未指定'}</div>
+                <div><strong>材料类别:</strong> ${detailedParams['材料大类'] || detailedParams.materialCategory || '未指定'}</div>
+                <div><strong>材料类型:</strong> ${detailedParams.material || detailedParams['材料'] || '未指定'}</div>
+                <div><strong>表面处理:</strong> ${detailedParams['表面处理'] || detailedParams.finish || detailedParams['颜色与表面'] || '未指定'}</div>
+                <div><strong>最严公差:</strong> ${detailedParams['最严公差'] || detailedParams.tightest || detailedParams.tolerance || detailedParams['公差标准'] || detailedParams.precision || detailedParams['精度等级'] || '未指定'}</div>
                 <div><strong>表面粗糙度:</strong> ${detailedParams.roughness || detailedParams['表面粗糙度'] || '未指定'}</div>
-                <div><strong>是否有螺纹:</strong> ${detailedParams.hasThread || detailedParams['是否有螺纹'] || '否'}</div>
-                <div><strong>装配标记:</strong> ${detailedParams.hasAssembly || detailedParams['是否有装配标记'] || '否'}</div>
-                <div><strong>缩放比例:</strong> ${detailedParams.scale || detailedParams['缩放比例'] || 100}%</div>
+                <div><strong>是否有螺纹:</strong> ${(() => {
+                  const value = detailedParams.hasThread || detailedParams['是否有螺纹'];
+                  return (value === 'yes' || value === '是') ? '是' : '否';
+                })()}</div>
+                <div><strong>是否有装配关系:</strong> ${(() => {
+                  const value = detailedParams.hasAssembly || detailedParams['是否有装配关系'] || detailedParams['是否有装配标记'];
+                  return (value === 'yes' || value === '是') ? '是' : '否';
+                })()}</div>
                 <div><strong>备注:</strong> ${detailedParams.note || detailedParams['备注'] || '无'}</div>
               </div>
             </div>

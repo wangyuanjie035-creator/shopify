@@ -812,26 +812,64 @@
         </div>
         ${order.lineItems?.[0]?.customAttributes ? `
         <div class="order-params">
-          ${order.lineItems[0].customAttributes.map(attr => {
-            const importantParams = [
-              '材料', '颜色', '精度', '表面粗糙度', '精度等级', '公差标准', '颜色与表面',
-              '是否有螺纹', '是否有装配标记', '缩放比例'
+          ${(() => {
+            const customAttributes = order.lineItems[0].customAttributes;
+            const params = [];
+            
+            // 按客户上传界面的顺序显示参数
+            const paramOrder = [
+              { key: '材料大类', label: '材料类别' },
+              { key: '材料', label: '材料类型' },
+              { key: '表面处理', label: '表面处理' },
+              { key: '最严公差', label: '最严公差' },
+              { key: '表面粗糙度', label: '表面粗糙度' },
+              { key: '是否有螺纹', label: '是否有螺纹' },
+              { key: '是否有装配关系', label: '是否有装配关系' }
             ];
             
-            if (importantParams.includes(attr.key)) {
-              let displayValue = attr.value || '未指定';
-              
-              // 特殊处理某些字段的显示
-              if (attr.key === '是否有螺纹' || attr.key === '是否有装配标记') {
-                displayValue = attr.value === 'yes' ? '是' : '否';
-              } else if (attr.key === '缩放比例') {
-                displayValue = attr.value ? attr.value + '%' : '未指定';
+            // 优先显示新字段
+            paramOrder.forEach(config => {
+              const attr = customAttributes.find(a => a.key === config.key);
+              if (attr && attr.value && attr.value !== '未指定' && attr.value !== '未提供') {
+                let displayValue = attr.value;
+                if (config.key === '是否有螺纹' || config.key === '是否有装配关系') {
+                  displayValue = (attr.value === 'yes' || attr.value === '是') ? '是' : '否';
+                }
+                params.push(`<div class="param-item"><strong>${config.label}:</strong> ${displayValue}</div>`);
               }
+            });
+            
+            // 兼容旧字段（如果新字段不存在）
+            const legacyParams = ['颜色', '精度', '精度等级', '公差标准', '颜色与表面', '是否有装配标记', '缩放比例'];
+            legacyParams.forEach(key => {
+              const hasNewField = paramOrder.some(config => {
+                const mapping = {
+                  '颜色': '材料',
+                  '精度': '最严公差',
+                  '精度等级': '最严公差',
+                  '公差标准': '最严公差',
+                  '颜色与表面': '表面处理',
+                  '是否有装配标记': '是否有装配关系'
+                };
+                return mapping[key] === config.key;
+              });
               
-              return `<div class="param-item"><strong>${attr.key}:</strong> ${displayValue}</div>`;
-            }
-            return '';
-          }).filter(item => item).join('')}
+              if (!hasNewField) {
+                const attr = customAttributes.find(a => a.key === key);
+                if (attr && attr.value && attr.value !== '未指定' && attr.value !== '未提供') {
+                  let displayValue = attr.value;
+                  if (key === '是否有装配标记') {
+                    displayValue = (attr.value === 'yes' || attr.value === '是') ? '是' : '否';
+                  } else if (key === '缩放比例') {
+                    displayValue = attr.value.includes('%') ? attr.value : attr.value + '%';
+                  }
+                  params.push(`<div class="param-item"><strong>${key}:</strong> ${displayValue}</div>`);
+                }
+              }
+            });
+            
+            return params.join('');
+          })()}
         </div>
         ` : ''}
         <div class="order-actions">
@@ -1152,37 +1190,84 @@
         justify-content: center;
       `;
       
-      // 构建参数信息
+      // 构建参数信息（与客户上传界面保持一致）
       let paramsHtml = '';
-      const paramKeys = [
-        '材料', 
+      
+      // 定义参数显示顺序和标签映射（与客户上传界面一致）
+      const paramConfig = [
+        { key: '材料大类', label: '材料类别' },
+        { key: '材料', label: '材料类型' },
+        { key: '表面处理', label: '表面处理' },
+        { key: '最严公差', label: '最严公差' },
+        { key: '表面粗糙度', label: '表面粗糙度' },
+        { key: '是否有螺纹', label: '是否有螺纹' },
+        { key: '是否有装配关系', label: '是否有装配关系' },
+        { key: '数量', label: '数量' },
+        { key: '备注', label: '备注' }
+      ];
+      
+      // 兼容旧数据：也检查可能的旧字段名
+      const legacyParamKeys = [
         '颜色', 
         '精度', 
-        '表面粗糙度', 
         '精度等级', 
         '公差标准', 
         '颜色与表面',
-        '是否有螺纹',
         '是否有装配标记',
-        '缩放比例',
-        '备注'
+        '缩放比例'
       ];
       
-      paramKeys.forEach(key => {
-        const attr = customAttributes.find(a => a.key === key);
-        if (attr && attr.value) {
+      // 优先显示新字段
+      paramConfig.forEach(config => {
+        const attr = customAttributes.find(a => a.key === config.key);
+        if (attr && attr.value && attr.value !== '未指定' && attr.value !== '未提供') {
           let displayValue = attr.value;
           
           // 特殊处理某些字段的显示
-          if (key === '是否有螺纹' || key === '是否有装配标记') {
-            displayValue = attr.value === 'yes' ? '是' : '否';
-          } else if (key === '缩放比例') {
-            displayValue = attr.value + '%';
+          if (config.key === '是否有螺纹' || config.key === '是否有装配关系') {
+            displayValue = (attr.value === 'yes' || attr.value === '是') ? '是' : '否';
           }
           
-          paramsHtml += `<p><strong>${key}:</strong> ${displayValue}</p>`;
+          paramsHtml += `<p><strong>${config.label}:</strong> ${displayValue}</p>`;
         }
       });
+      
+      // 兼容显示旧字段（如果新字段不存在）
+      legacyParamKeys.forEach(key => {
+        // 检查是否已经有对应的新字段显示
+        const hasNewField = paramConfig.some(config => {
+          const mapping = {
+            '颜色': '材料',
+            '精度': '最严公差',
+            '精度等级': '最严公差',
+            '公差标准': '最严公差',
+            '颜色与表面': '表面处理',
+            '是否有装配标记': '是否有装配关系'
+          };
+          return mapping[key] === config.key;
+        });
+        
+        if (!hasNewField) {
+          const attr = customAttributes.find(a => a.key === key);
+          if (attr && attr.value && attr.value !== '未指定' && attr.value !== '未提供') {
+            let displayValue = attr.value;
+            
+            if (key === '是否有装配标记') {
+              displayValue = (attr.value === 'yes' || attr.value === '是') ? '是' : '否';
+            } else if (key === '缩放比例') {
+              displayValue = attr.value.includes('%') ? attr.value : attr.value + '%';
+            }
+            
+            paramsHtml += `<p><strong>${key}:</strong> ${displayValue}</p>`;
+          }
+        }
+      });
+      
+      // 显示数量（从订单信息中获取）
+      const quantity = lineItem.quantity || 1;
+      if (quantity > 0) {
+        paramsHtml += `<p><strong>数量:</strong> ${quantity}</p>`;
+      }
       
       modal.innerHTML = `
         <div style="
