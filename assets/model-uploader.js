@@ -175,6 +175,53 @@
       }
     }
 
+    // 铜合金：表面处理1只有"仅喷砂"和"镜面抛光"，没有表面处理2
+    if (materialCategory === '铜合金') {
+      return {
+        primary: ['仅喷砂', '镜面抛光'],
+        secondary: ['不做'], // 没有表面处理2
+        colorMap: {
+          default: [],
+          '仅喷砂': [],
+          '镜面抛光': []
+        },
+        sheenMap: {}
+      };
+    }
+
+    // 合金钢：表面处理1有"发黑"、"激光打标"、"拉丝"、"仅喷砂"，表面处理2和1一样
+    if (materialCategory === '合金钢') {
+      const alloySteelOptions = ['发黑', '激光打标', '拉丝', '仅喷砂'];
+      return {
+        primary: alloySteelOptions,
+        secondary: ['不做', ...alloySteelOptions],
+        colorMap: {
+          default: [],
+          '发黑': [],
+          '激光打标': [],
+          '拉丝': [],
+          '仅喷砂': []
+        },
+        sheenMap: {}
+      };
+    }
+
+    // 不锈钢：表面处理1有"激光打标"、"拉丝"、"仅喷砂"，表面处理2和1一样
+    if (materialCategory === '不锈钢') {
+      const stainlessSteelOptions = ['激光打标', '拉丝', '仅喷砂'];
+      return {
+        primary: stainlessSteelOptions,
+        secondary: ['不做', ...stainlessSteelOptions],
+        colorMap: {
+          default: [],
+          '激光打标': [],
+          '拉丝': [],
+          '仅喷砂': []
+        },
+        sheenMap: {}
+      };
+    }
+
     // 其他材质 fallback：仅“不做”
     return {
       primary: ['不做'],
@@ -1113,7 +1160,17 @@
       if (!fd) return true;
       if (!is3DFile(fd.file.name)) return true; // 只允许3D
       const need2D = fd.config && (fd.config.hasThread === 'yes' || fd.config.hasAssembly === 'yes');
-      return need2D && !hasCorresponding2DFile(id);
+      if (need2D && !hasCorresponding2DFile(id)) return true;
+      
+      // 检查UV打印和激光打标是否需要2D图纸
+      if (fd.config && fd.config.surfaceEnabled !== false && fd.config.surfaceTreatments) {
+        const rule = getSurfaceRule(fd.config.material, fd.config.materialCategory);
+        const surfaceTexts = normalizeSurfaceTreatments(fd.config.surfaceTreatments, true, rule);
+        const hasUV = surfaceTexts.some(t => t.process === 'UV打印');
+        const hasLaserMarking = surfaceTexts.some(t => t.process === '激光打标');
+        if ((hasUV || hasLaserMarking) && !hasCorresponding2DFile(id)) return true;
+      }
+      return false;
     });
     addToCartBtn.disabled = invalid;
   }
@@ -1252,10 +1309,17 @@
           errors.push(`❌ 文件"${fileData.file.name}"已选择有${reason}，但缺少对应的2D图纸（DWG/DXF/PDF）`);
         }
       }
+      const hasLaserMarking = (fileData.config.surfaceEnabled !== false) && surfaceTexts.some(t => t.process === '激光打标');
       if (hasUV) {
         const has2D = hasCorresponding2DFile(fileManager.currentFileId);
         if (!has2D) {
           errors.push(`❌ 文件"${fileData.file.name}"选择了UV打印，但缺少对应的2D图纸（DWG/DXF/PDF）。`);
+        }
+      }
+      if (hasLaserMarking) {
+        const has2D = hasCorresponding2DFile(fileManager.currentFileId);
+        if (!has2D) {
+          errors.push(`❌ 文件"${fileData.file.name}"选择了激光打标，但缺少对应的2D图纸（DWG/DXF/PDF）。`);
         }
       }
     }
