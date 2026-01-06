@@ -1217,57 +1217,57 @@
         '缩放比例'
       ];
       
-      // 优先显示新字段
-      paramConfig.forEach(config => {
-        const attr = customAttributes.find(a => a.key === config.key);
+      // 字段映射：旧字段 -> 新字段/新标签
+      const fieldMapping = {
+        '材料大类': { label: '材料类别', priority: 1 },
+        '材料': { label: '材料类型', priority: 2, legacyKeys: ['颜色'] },
+        '表面处理': { label: '表面处理', priority: 3, legacyKeys: ['颜色与表面'] },
+        '最严公差': { label: '最严公差', priority: 4, legacyKeys: ['精度', '精度等级', '公差标准'] },
+        '表面粗糙度': { label: '表面粗糙度', priority: 5 },
+        '是否有螺纹': { label: '是否有螺纹', priority: 6 },
+        '是否有装配关系': { label: '是否有装配关系', priority: 7, legacyKeys: ['是否有装配标记'] },
+        '数量': { label: '数量', priority: 8 },
+        '备注': { label: '备注', priority: 9 }
+      };
+      
+      // 按优先级排序显示
+      const sortedFields = Object.entries(fieldMapping).sort((a, b) => a[1].priority - b[1].priority);
+      
+      sortedFields.forEach(([newKey, config]) => {
+        // 先查找新字段
+        let attr = customAttributes.find(a => a.key === newKey);
+        let displayValue = null;
+        
+        // 如果新字段不存在，查找旧字段
+        if (!attr && config.legacyKeys) {
+          for (const legacyKey of config.legacyKeys) {
+            attr = customAttributes.find(a => a.key === legacyKey);
+            if (attr) break;
+          }
+        }
+        
+        // 如果找到字段，处理显示值
         if (attr && attr.value && attr.value !== '未指定' && attr.value !== '未提供') {
-          let displayValue = attr.value;
+          displayValue = attr.value;
           
-          // 特殊处理某些字段的显示
-          if (config.key === '是否有螺纹' || config.key === '是否有装配关系') {
+          // 特殊处理布尔值字段
+          if (newKey === '是否有螺纹' || newKey === '是否有装配关系') {
             displayValue = (attr.value === 'yes' || attr.value === '是') ? '是' : '否';
           }
           
+          // 显示参数
           paramsHtml += `<p><strong>${config.label}:</strong> ${displayValue}</p>`;
         }
       });
       
-      // 兼容显示旧字段（如果新字段不存在）
-      legacyParamKeys.forEach(key => {
-        // 检查是否已经有对应的新字段显示
-        const hasNewField = paramConfig.some(config => {
-          const mapping = {
-            '颜色': '材料',
-            '精度': '最严公差',
-            '精度等级': '最严公差',
-            '公差标准': '最严公差',
-            '颜色与表面': '表面处理',
-            '是否有装配标记': '是否有装配关系'
-          };
-          return mapping[key] === config.key;
-        });
-        
-        if (!hasNewField) {
-          const attr = customAttributes.find(a => a.key === key);
-          if (attr && attr.value && attr.value !== '未指定' && attr.value !== '未提供') {
-            let displayValue = attr.value;
-            
-            if (key === '是否有装配标记') {
-              displayValue = (attr.value === 'yes' || attr.value === '是') ? '是' : '否';
-            } else if (key === '缩放比例') {
-              displayValue = attr.value.includes('%') ? attr.value : attr.value + '%';
-            }
-            
-            paramsHtml += `<p><strong>${key}:</strong> ${displayValue}</p>`;
-          }
-        }
-      });
-      
-      // 显示数量（从订单信息中获取）
-      const quantity = lineItem.quantity || 1;
-      if (quantity > 0) {
-        paramsHtml += `<p><strong>数量:</strong> ${quantity}</p>`;
+      // 显示缩放比例（如果有）
+      const scaleAttr = customAttributes.find(a => a.key === '缩放比例');
+      if (scaleAttr && scaleAttr.value && scaleAttr.value !== '未指定' && scaleAttr.value !== '未提供') {
+        let displayValue = scaleAttr.value.includes('%') ? scaleAttr.value : scaleAttr.value + '%';
+        paramsHtml += `<p><strong>缩放比例:</strong> ${displayValue}</p>`;
       }
+      
+      // 数量已在上面通过fieldMapping显示，这里不需要重复显示
       
       modal.innerHTML = `
         <div style="

@@ -190,22 +190,6 @@ export default async function handler(req, res) {
         return String(value);
       };
 
-      const baseAttributes = [
-        // 基本参数
-        { key: '材料', value: normalizeValue(material, '未提供') },
-        { key: '颜色', value: normalizeValue(color, '未提供') },
-        { key: '精度', value: normalizeValue(precision, '未提供') },
-        { key: '文件', value: normalizeValue(fileName || 'model.stl') },
-        { key: '文件ID', value: normalizeValue(fileId, '未生成') },
-        { key: '询价单号', value: normalizeValue(quoteId) },
-        { key: 'Shopify文件ID', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileId : null, '未上传') },
-        { key: 'Shopify文件URL', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileUrl : null, '未上传') },
-        { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
-        { key: '原始文件大小', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.originalFileSize : null, '未知') },
-        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
-      ];
-
-      
       // 从前端lineItems中提取的详细参数，过滤掉Base64数据
       const frontendAttributes = lineItems.length > 0 && lineItems[0].customAttributes ? lineItems[0].customAttributes.filter(attr => {
         // 过滤掉包含Base64数据的属性
@@ -220,14 +204,59 @@ export default async function handler(req, res) {
         return true;
       }) : [];
       
+      // 系统字段（不从前端获取，避免覆盖）
+      const systemAttributes = [
+        { key: '文件', value: normalizeValue(fileName || 'model.stl') },
+        { key: '文件ID', value: normalizeValue(fileId, '未生成') },
+        { key: '询价单号', value: normalizeValue(quoteId) },
+        { key: 'Shopify文件ID', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileId : null, '未上传') },
+        { key: 'Shopify文件URL', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.shopifyFileUrl : null, '未上传') },
+        { key: '文件存储方式', value: shopifyFileInfo ? 'Shopify Files' : 'Base64' },
+        { key: '原始文件大小', value: normalizeValue(shopifyFileInfo ? shopifyFileInfo.originalFileSize : null, '未知') },
+        { key: '文件数据', value: shopifyFileInfo ? '已上传到Shopify Files' : (req.body.fileUrl && req.body.fileUrl.startsWith('data:') ? '已存储Base64数据' : '未提供') }
+      ];
+      
+      // 兼容旧数据：如果前端没有提供新字段，使用旧字段作为降级方案
+      const legacyAttributes = [];
+      if (frontendAttributes.length === 0 || !frontendAttributes.find(a => a.key === '材料大类' || a.key === '材料')) {
+        // 如果没有新字段，使用旧字段（向后兼容）
+        if (material) legacyAttributes.push({ key: '材料', value: normalizeValue(material, '未提供') });
+        if (color) legacyAttributes.push({ key: '颜色', value: normalizeValue(color, '未提供') });
+        if (precision) legacyAttributes.push({ key: '精度', value: normalizeValue(precision, '未提供') });
+      }
+      
       console.log('🔧 构建customAttributes:');
-      console.log('- 基本参数数量:', baseAttributes.length);
       console.log('- 前端参数数量:', frontendAttributes.length);
       console.log('- 前端参数详情:', frontendAttributes);
+      console.log('- 系统字段数量:', systemAttributes.length);
+      console.log('- 兼容旧字段数量:', legacyAttributes.length);
       
-      const allAttributes = [...baseAttributes, ...frontendAttributes].map(attr => ({
-        key: attr.key,
-        value: normalizeValue(attr.value, '')
+      // 合并：前端字段优先，然后是系统字段，最后是兼容旧字段（避免重复）
+      const allAttributesMap = new Map();
+      
+      // 1. 先添加前端字段（新字段，优先级最高）
+      frontendAttributes.forEach(attr => {
+        allAttributesMap.set(attr.key, normalizeValue(attr.value, ''));
+      });
+      
+      // 2. 添加系统字段（如果不存在）
+      systemAttributes.forEach(attr => {
+        if (!allAttributesMap.has(attr.key)) {
+          allAttributesMap.set(attr.key, normalizeValue(attr.value, ''));
+        }
+      });
+      
+      // 3. 添加兼容旧字段（如果新字段不存在）
+      legacyAttributes.forEach(attr => {
+        if (!allAttributesMap.has(attr.key)) {
+          allAttributesMap.set(attr.key, normalizeValue(attr.value, ''));
+        }
+      });
+      
+      // 转换为数组
+      const allAttributes = Array.from(allAttributesMap.entries()).map(([key, value]) => ({
+        key,
+        value
       }));
       console.log('- 总参数数量:', allAttributes.length);
       
