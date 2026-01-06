@@ -27,12 +27,12 @@
   // DOM 元素
   let fileInput, dropzone, modelViewer, viewerContainer;
   let loadingIndicator, errorMessage, fileList, fileItems;
-  let materialCategorySelect, materialSelect, surfaceListContainer, scaleSlider, scaleValue, surfaceToggleYes, surfaceToggleNo;
+  let materialCategorySelect, materialSelect, surfaceListContainer, surfaceToggleYes, surfaceToggleNo;
   let qtyInput, qtyMinus, qtyPlus;
   let dimensionsDisplay, dimensionsValue;
   let addToCartBtn, form;
-  let hasThreadRadios, hasAssemblyRadios, toleranceSelect, roughnessSelect, noteTextarea;
-  let precisionSelect, charCount;
+  let hasThreadRadios, hasAssemblyRadios, tightestSelect, roughnessSelect, noteTextarea;
+  let charCount;
 
   // 材料类型映射
   const MATERIAL_TYPE_MAP = {
@@ -350,8 +350,7 @@
     surfaceListContainer = document.getElementById('surface-list');
     surfaceToggleYes = document.querySelector('input[name="surface-enabled"][value="yes"]');
     surfaceToggleNo = document.querySelector('input[name="surface-enabled"][value="no"]');
-    precisionSelect = document.getElementById('precision');
-    toleranceSelect = document.getElementById('tolerance-standard');
+    tightestSelect = document.getElementById('tightest-tolerance');
     roughnessSelect = document.getElementById('surface-roughness');
     hasThreadRadios = document.querySelectorAll('input[name="has-thread"]');
     hasAssemblyRadios = document.querySelectorAll('input[name="has-assembly-mark"]');
@@ -366,11 +365,27 @@
       materialCategory: initCategory,
       material: initType
     });
-    scaleSlider = document.getElementById('scale');
-    scaleValue = document.getElementById('scale-value');
     qtyInput = document.getElementById('qty');
     qtyMinus = document.getElementById('qty-minus');
     qtyPlus = document.getElementById('qty-plus');
+    
+    // 数量按钮事件
+    if (qtyMinus) {
+      qtyMinus.addEventListener('click', () => {
+        const current = parseInt(qtyInput?.value || 1);
+        if (current > 1) {
+          qtyInput.value = current - 1;
+          updateCurrentFileParameters();
+        }
+      });
+    }
+    if (qtyPlus) {
+      qtyPlus.addEventListener('click', () => {
+        const current = parseInt(qtyInput?.value || 1);
+        qtyInput.value = current + 1;
+        updateCurrentFileParameters();
+      });
+    }
     dimensionsDisplay = document.getElementById('dimensions-display');
     dimensionsValue = document.getElementById('dimensions-value');
     addToCartBtn = document.getElementById('add-to-cart');
@@ -501,8 +516,8 @@
   // 绑定参数变化事件
   function bindParameterEvents() {
     const parameterElements = [
-      materialSelect, precisionSelect, toleranceSelect, roughnessSelect,
-      scaleSlider, qtyInput, noteTextarea
+      materialSelect, tightestSelect, roughnessSelect,
+      qtyInput, noteTextarea
     ];
 
     parameterElements.forEach(element => {
@@ -781,12 +796,10 @@
       material: getDefaultMaterialType(DEFAULT_MATERIAL_CATEGORY),
       surfaceEnabled: false,
       surfaceTreatments: [],
-      precision: 'Standard',
-      tolerance: 'GB/T 1804-2000 m级',
+      tightest: 'GB/T 1804-2000 m级',
       roughness: 'Ra3.2',
       hasThread: 'no',
       hasAssembly: 'no',
-      scale: 100,
       quantity: 1,
       note: ''
     };
@@ -1197,13 +1210,11 @@
       fileData.config.surfaceEnabled,
       rule
     );
-    renderSurfaceTreatments(fileData.config);
-    fileData.config.precision = precisionSelect?.value || 'Standard';
-    fileData.config.tolerance = toleranceSelect?.value || 'GB/T 1804-2000 m级';
+      renderSurfaceTreatments(fileData.config);
+    fileData.config.tightest = tightestSelect?.value || 'GB/T 1804-2000 m级';
     fileData.config.roughness = roughnessSelect?.value || 'Ra3.2';
     fileData.config.hasThread = document.querySelector('input[name="has-thread"]:checked')?.value || 'no';
     fileData.config.hasAssembly = document.querySelector('input[name="has-assembly-mark"]:checked')?.value || 'no';
-    fileData.config.scale = parseFloat(scaleSlider?.value || 100);
     fileData.config.quantity = parseInt(qtyInput?.value || 1);
     fileData.config.note = noteTextarea?.value || '';
 
@@ -1228,7 +1239,7 @@
       errors.push(`❌ 文件"${fileName}"是STL格式，系统仅支持STP/STEP格式文件。STL文件无法转换为STEP文件，请重新导出为STP/STEP格式`);
     }
 
-    // 当选择有螺纹/装配标记时，必须有对应2D
+    // 当选择有螺纹/装配关系时，必须有对应2D
     if (fileData && fileData.config) {
       const need2D = fileData.config.hasThread === 'yes' || fileData.config.hasAssembly === 'yes';
       const rule = getSurfaceRule(fileData.config.material, fileData.config.materialCategory);
@@ -1237,7 +1248,7 @@
       if (need2D) {
         const has2D = hasCorresponding2DFile(fileManager.currentFileId);
         if (!has2D) {
-          const reason = fileData.config.hasThread === 'yes' ? '螺纹' : (fileData.config.hasAssembly === 'yes' ? '装配标记' : '特殊要求');
+          const reason = fileData.config.hasThread === 'yes' ? '螺纹' : (fileData.config.hasAssembly === 'yes' ? '装配关系' : '特殊要求');
           errors.push(`❌ 文件"${fileData.file.name}"已选择有${reason}，但缺少对应的2D图纸（DWG/DXF/PDF）`);
         }
       }
@@ -1371,11 +1382,8 @@
       if (surfaceListContainer) surfaceListContainer.style.display = enabled ? 'block' : 'none';
       if (addSurfaceBtn) addSurfaceBtn.style.display = enabled ? 'inline-block' : 'none';
     }
-    if (precisionSelect) precisionSelect.value = config.precision;
-    if (toleranceSelect) toleranceSelect.value = config.tolerance;
+    if (tightestSelect) tightestSelect.value = config.tightest || 'GB/T 1804-2000 m级';
     if (roughnessSelect) roughnessSelect.value = config.roughness;
-    if (scaleSlider) scaleSlider.value = config.scale;
-    if (scaleValue) scaleValue.textContent = `${config.scale}%`;
     if (qtyInput) qtyInput.value = config.quantity;
     if (noteTextarea) noteTextarea.value = config.note;
 
@@ -1399,10 +1407,9 @@
     const fileData = fileManager.files.get(fileManager.currentFileId);
     if (!fileData || !fileData.dimensions) return;
 
-    const scale = (fileData.config.scale || 100) / 100;
-    const width = (fileData.dimensions.width * scale).toFixed(2);
-    const height = (fileData.dimensions.height * scale).toFixed(2);
-    const depth = (fileData.dimensions.depth * scale).toFixed(2);
+    const width = (fileData.dimensions.width).toFixed(2);
+    const height = (fileData.dimensions.height).toFixed(2);
+    const depth = (fileData.dimensions.depth).toFixed(2);
 
     dimensionsValue.textContent = `${width} x ${height} x ${depth} 毫米`;
     dimensionsDisplay.style.display = 'block';
@@ -1567,12 +1574,10 @@
           { key: '材料', value: config.material || '未指定' },
           { key: '材料大类', value: config.materialCategory || getCategoryForMaterial(config.material) || '未指定' },
           { key: '表面处理', value: surfaceText || '未指定' },
-          { key: '精度等级', value: config.precision || '标准 (±0.1mm)' },
-          { key: '公差标准', value: config.tolerance || 'GB/T 1804-2000 m级' },
+          { key: '最严公差', value: config.tightest || 'GB/T 1804-2000 m级' },
           { key: '表面粗糙度', value: config.roughness || 'Ra3.2' },
           { key: '是否有螺纹', value: config.hasThread || 'no' },
-          { key: '是否有装配标记', value: config.hasAssembly || 'no' },
-          { key: '缩放比例', value: String(config.scale || 100) },
+          { key: '是否有装配关系', value: config.hasAssembly || 'no' },
           { key: '备注', value: config.note || '' },
           { key: 'Quote Status', value: 'Pending' },
           { key: '文件ID', value: realFileId },
@@ -1684,12 +1689,10 @@
           '材料': config.material || '未指定',
           '材料大类': config.materialCategory || getCategoryForMaterial(config.material) || '未指定',
           '表面处理': surfaceText || '未指定',
-          '精度': config.precision || '标准 (±0.1mm)',
-          '公差': config.tolerance || 'GB/T 1804-2000 m级',
+          '最严公差': config.tightest || 'GB/T 1804-2000 m级',
           '粗糙度': config.roughness || 'Ra3.2',
           '螺纹': config.hasThread || 'no',
           '装配': config.hasAssembly || 'no',
-          '缩放': config.scale || 100,
           '备注': config.note || '',
           'Quote Status': 'Pending',
           '_uuid': Date.now() + '-' + Math.random().toString(36).substr(2, 9)
@@ -1780,12 +1783,10 @@
         quantity: parseInt(config.quantity || 1),
         material: config.material || '未指定',
         surfaceTreatment: surfaceText || '待确认',
-        precision: config.precision || '标准 (±0.1mm)',
-        tolerance: config.tolerance || 'GB/T 1804-2000 m级',
+        tightest: config.tightest || 'GB/T 1804-2000 m级',
         roughness: config.roughness || 'Ra3.2',
         hasThread: config.hasThread || 'no',
         hasAssembly: config.hasAssembly || 'no',
-        scale: config.scale || 100,
         note: config.note || ''
       };
       
@@ -2029,12 +2030,10 @@
     const propMaterial = document.getElementById('prop-material');
     const propMaterialCategory = document.getElementById('prop-material-category');
     const propSurface = document.getElementById('prop-surface');
-    const propPrecision = document.getElementById('prop-precision');
-    const propTolerance = document.getElementById('prop-tolerance');
+    const propTightest = document.getElementById('prop-tightest');
     const propRoughness = document.getElementById('prop-roughness');
     const propHasThread = document.getElementById('prop-hasThread');
     const propHasAssembly = document.getElementById('prop-hasAssembly');
-    const propScale = document.getElementById('prop-scale');
     const propNote = document.getElementById('prop-note');
     const propFileName = document.getElementById('prop-fileName');
     const propFileSize = document.getElementById('prop-fileSize');
@@ -2047,12 +2046,10 @@
       normalizeSurfaceTreatments(currentFileData.config.surfaceTreatments, currentFileData.config.surfaceEnabled !== false, rule),
       currentFileData.config.surfaceEnabled !== false
     );
-    if (propPrecision) propPrecision.value = currentFileData.config.precision || '';
-    if (propTolerance) propTolerance.value = currentFileData.config.tolerance || '';
+    if (propTightest) propTightest.value = currentFileData.config.tightest || 'GB/T 1804-2000 m级';
     if (propRoughness) propRoughness.value = currentFileData.config.roughness || '';
     if (propHasThread) propHasThread.value = currentFileData.config.hasThread || '';
     if (propHasAssembly) propHasAssembly.value = currentFileData.config.hasAssembly || '';
-    if (propScale) propScale.value = currentFileData.config.scale || 100;
     if (propNote) propNote.value = currentFileData.config.note || '';
     if (propFileName) propFileName.value = currentFileData.file.name;
     if (propFileSize) propFileSize.value = formatFileSize(currentFileData.file.size);
@@ -2144,17 +2141,14 @@
     formData.append('properties[材料大类]', fileData.config.materialCategory || getCategoryForMaterial(fileData.config.material) || '');
     formData.append('properties[材料]', fileData.config.material);
     formData.append('properties[表面处理]', surfaceText);
-    formData.append('properties[精度等级]', fileData.config.precision);
-    formData.append('properties[公差标准]', fileData.config.tolerance);
+    formData.append('properties[最严公差]', fileData.config.tightest || 'GB/T 1804-2000 m级');
     formData.append('properties[表面粗糙度]', fileData.config.roughness);
     formData.append('properties[是否有螺纹]', fileData.config.hasThread);
-    formData.append('properties[是否有装配标记]', fileData.config.hasAssembly);
-    formData.append('properties[缩放比例]', fileData.config.scale);
+    formData.append('properties[是否有装配关系]', fileData.config.hasAssembly);
     formData.append('properties[备注]', fileData.config.note);
     
     if (fileData.dimensions) {
-      const scale = fileData.config.scale / 100;
-      const dimensions = `${(fileData.dimensions.width * scale).toFixed(2)} x ${(fileData.dimensions.height * scale).toFixed(2)} x ${(fileData.dimensions.depth * scale).toFixed(2)} mm`;
+      const dimensions = `${(fileData.dimensions.width).toFixed(2)} x ${(fileData.dimensions.height).toFixed(2)} x ${(fileData.dimensions.depth).toFixed(2)} mm`;
       formData.append('properties[尺寸]', dimensions);
     }
     
@@ -3288,7 +3282,7 @@
       if (!is3DFile(fd.file.name)) { continue; }
       const need2D = fd.config && (fd.config.hasThread === 'yes' || fd.config.hasAssembly === 'yes');
       if (need2D && !hasCorresponding2DFile(id)) {
-        const reason = fd.config.hasThread === 'yes' ? '螺纹' : (fd.config.hasAssembly === 'yes' ? '装配标记' : '特殊要求');
+        const reason = fd.config.hasThread === 'yes' ? '螺纹' : (fd.config.hasAssembly === 'yes' ? '装配关系' : '特殊要求');
         errors.push(`❌ 文件"${fd.file.name}"已选择有${reason}，但缺少对应的2D图纸（DWG/DXF/PDF）`);
       }
     }
@@ -3352,7 +3346,7 @@
       div.innerHTML = `
         <div class="quote-left">
           <div class="quote-name">${fd.file.name}</div>
-          <div class="quote-meta">数量: ${fd.config.quantity || 1} ｜ 材料: ${fd.config.material || ''} ｜ 精度: ${fd.config.precision || ''}</div>
+          <div class="quote-meta">数量: ${fd.config.quantity || 1} ｜ 材料: ${fd.config.material || ''} ｜ 最严公差: ${fd.config.tightest || ''}</div>
         </div>
         <div class="quote-status">报价中</div>
       `;
@@ -3388,9 +3382,8 @@
         uploadTime: new Date().toLocaleString('zh-CN'),
         quantity: 1,
         material: '待确认',
-        precision: '待确认',
+        tightest: '待确认',
         surfaceTreatment: '待确认',
-        scale: 100,
         note: '客户询价请求'
       };
 

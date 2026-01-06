@@ -655,26 +655,13 @@
           </div>
         </div>
 
-        <!-- 精度等级 -->
+        <!-- 最严公差 -->
         <div class="config-group">
-          <label class="config-label">精度等级</label>
-          <select id="precision" class="config-select">
-            <option value="Standard">标准 (±0.1mm)</option>
-            <option value="High">高精度 (±0.05mm)</option>
-            <option value="Ultra">超高精度 (±0.02mm)</option>
-          </select>
-      </div>
-
-        <!-- 公差标准 -->
-        <div class="config-group">
-          <label class="config-label">公差标准</label>
-          <select id="tolerance-standard" class="config-select">
+          <label class="config-label">最严公差</label>
+          <select id="tightest-tolerance" class="config-select">
             <option value="GB/T 1804-2000 m级">GB/T 1804-2000 m级</option>
-            <option value="GB/T 1804-2000 c级">GB/T 1804-2000 c级</option>
-            <option value="GB/T 1804-2000 v级">GB/T 1804-2000 v级</option>
-            <option value="ISO 2768-1 m">ISO 2768-1 m</option>
-            <option value="ISO 2768-1 c">ISO 2768-1 c</option>
-            <option value="ISO 2768-1 v">ISO 2768-1 v</option>
+            <option value="±0.10mm">±0.10mm</option>
+            <option value="±0.05mm">±0.05mm</option>
           </select>
       </div>
 
@@ -684,9 +671,6 @@
           <select id="surface-roughness" class="config-select">
             <option value="Ra3.2">Ra3.2</option>
             <option value="Ra1.6">Ra1.6</option>
-            <option value="Ra0.8">Ra0.8</option>
-            <option value="Ra0.4">Ra0.4</option>
-            <option value="Ra0.2">Ra0.2</option>
           </select>
       </div>
 
@@ -705,9 +689,9 @@
         </div>
       </div>
 
-        <!-- 是否有装配标记 -->
+        <!-- 是否有装配关系 -->
         <div class="config-group">
-          <label class="config-label">是否有装配标记</label>
+          <label class="config-label">是否有装配关系</label>
           <div class="radio-group">
             <label class="radio-item">
               <input type="radio" name="has-assembly-mark" value="yes">
@@ -726,14 +710,6 @@
           <div class="dimensions-value" id="dimensions-value">0 x 0 x 0 毫米</div>
       </div>
 
-        <!-- 缩放比例 -->
-        <div class="config-group">
-          <label class="config-label">规模</label>
-          <input type="range" id="scale" min="10" max="500" value="100" class="config-range">
-          <div class="range-value">
-            <span id="scale-value">100%</span>
-      </div>
-      </div>
 
         <!-- 数量 -->
         <div class="config-group">
@@ -923,12 +899,10 @@
         <input type="hidden" id="prop-material" name="properties[材料]" value="">
         <input type="hidden" id="prop-material-category" name="properties[材料类别]" value="">
         <input type="hidden" id="prop-surface" name="properties[表面处理]" value="">
-        <input type="hidden" id="prop-precision" name="properties[精度等级]" value="">
-        <input type="hidden" id="prop-tolerance" name="properties[公差标准]" value="">
+        <input type="hidden" id="prop-tightest" name="properties[最严公差]" value="">
     <input type="hidden" id="prop-roughness" name="properties[表面粗糙度]" value="">
     <input type="hidden" id="prop-thread" name="properties[是否有螺纹]" value="">
     <input type="hidden" id="prop-assembly" name="properties[是否有装配标记]" value="">
-    <input type="hidden" id="prop-scale" name="properties[缩放比例]" value="">
         <input type="hidden" id="prop-note" name="properties[备注]" value="">
     <input type="hidden" id="prop-file" name="properties[上传文件]" type="file">
     <input type="hidden" id="form-qty" name="quantity" value="1">
