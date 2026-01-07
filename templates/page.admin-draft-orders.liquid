@@ -1054,21 +1054,15 @@
         const shopifyFileUrl = shopifyFileUrlAttr ? shopifyFileUrlAttr.value : null;
         const shopifyFileId  = shopifyFileIdAttr ? shopifyFileIdAttr.value : null;
 
-        let fileName = (fileNameAttr && fileNameAttr.value) || item.title || '未知文件';
+        // 使用原始文件名（优先使用 item.title，这是客户上传时的原始文件名）
+        // item.title 就是客户上传时的原始文件名，不需要添加后缀
+        let fileName = item.title || (fileNameAttr && fileNameAttr.value) || '未知文件';
         const fileTypeLabel = fileTypeAttr && fileTypeAttr.value === '2D' ? '2D' : '3D';
 
         // 检查是否有任何文件标识符
         if (!fileIdAttr && !shopifyFileUrl && !shopifyFileId) {
           console.log('该行无文件信息，跳过:', fileName, 'customAttributes:', attrs);
           continue;
-        }
-
-        // 在文件名上追加 _3D / _2D 标记
-        const dotIndex = fileName.lastIndexOf('.');
-        if (dotIndex > 0) {
-          fileName = fileName.slice(0, dotIndex) + `_${fileTypeLabel}` + fileName.slice(dotIndex);
-        } else {
-          fileName = fileName + `_${fileTypeLabel}`;
         }
 
         console.log('准备下载行项目文件:', {
