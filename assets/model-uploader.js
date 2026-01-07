@@ -1116,18 +1116,37 @@
 
   // 选择文件
   function selectFile(fileId) {
-    if (!fileManager.files.has(fileId)) return;
+    if (!fileManager.files.has(fileId)) {
+      console.warn('selectFile: 文件不存在', fileId);
+      return;
+    }
+
+    console.log('选择文件:', fileId, '当前文件:', fileManager.currentFileId);
 
     // 先保存当前文件的配置（如果正在编辑其他文件）
     if (fileManager.currentFileId && fileManager.currentFileId !== fileId) {
+      console.log('保存当前文件配置:', fileManager.currentFileId);
       updateCurrentFileParameters();
     }
 
     fileManager.currentFileId = fileId;
     const fileData = fileManager.files.get(fileId);
     
+    if (!fileData) {
+      console.error('selectFile: 文件数据不存在', fileId);
+      return;
+    }
+    
+    console.log('加载文件配置:', fileId, fileData.config);
+    
     // 更新参数显示（加载该文件的配置）
-    updateParameterDisplay(fileData.config);
+    // 使用标志位防止在加载配置时触发保存
+    window._isLoadingFileConfig = true;
+    try {
+      updateParameterDisplay(fileData.config);
+    } finally {
+      window._isLoadingFileConfig = false;
+    }
     
     // 加载模型
     loadModelForFile(fileId);
@@ -1252,10 +1271,24 @@
   }
 
   function updateCurrentFileParameters() {
-    if (!fileManager.currentFileId) return;
+    // 如果正在加载文件配置，不执行保存操作
+    if (window._isLoadingFileConfig) {
+      console.log('跳过保存：正在加载文件配置');
+      return;
+    }
+
+    if (!fileManager.currentFileId) {
+      console.log('跳过保存：没有当前文件');
+      return;
+    }
 
     const fileData = fileManager.files.get(fileManager.currentFileId);
-    if (!fileData) return;
+    if (!fileData) {
+      console.log('跳过保存：文件数据不存在');
+      return;
+    }
+
+    console.log('保存文件配置:', fileManager.currentFileId, fileData.file.name);
 
     // 更新配置
     fileData.config.unit = document.querySelector('input[name="unit"]:checked')?.value || 'mm';
@@ -1279,6 +1312,8 @@
     fileData.config.hasAssembly = document.querySelector('input[name="has-assembly-mark"]:checked')?.value || 'no';
     fileData.config.quantity = parseInt(qtyInput?.value || 1);
     fileData.config.note = noteTextarea?.value || '';
+
+    console.log('已保存配置:', fileData.config);
 
     // 执行智能验证（仅用于显示提示）
     validateFileConfiguration(fileData);
