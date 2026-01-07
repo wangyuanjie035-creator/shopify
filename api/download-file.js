@@ -141,7 +141,9 @@ export default async function handler(req, res) {
 
     const buffer = Buffer.from(fileData, 'base64');
     res.setHeader('Content-Type', fileType);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    // 使用 RFC 5987 编码处理包含非 ASCII 字符的文件名
+    const encodedFileName = encodeURIComponent(fileName);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encodedFileName}`);
     res.setHeader('Content-Length', buffer.length);
     return res.status(200).send(buffer);
 
@@ -203,9 +205,10 @@ async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
 
     console.log('文件URL获取成功:', fileUrl);
 
-    // 设置下载头并重定向到文件URL
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'download'}"`);
-    return res.redirect(302, fileUrl);
+    // 直接重定向到 Shopify CDN URL（不设置 Content-Disposition，让 CDN 处理）
+    // 因为重定向后浏览器会跟随到 CDN，我们的头会被覆盖
+    res.writeHead(302, { Location: fileUrl });
+    return res.end();
 
   } catch (error) {
     console.error('Shopify文件下载失败:', error);
