@@ -205,10 +205,54 @@ async function handleShopifyFileDownload(req, res, shopifyFileId, fileName) {
 
     console.log('文件URL获取成功:', fileUrl);
 
-    // 直接重定向到 Shopify CDN URL（不设置 Content-Disposition，让 CDN 处理）
-    // 因为重定向后浏览器会跟随到 CDN，我们的头会被覆盖
-    res.writeHead(302, { Location: fileUrl });
-    return res.end();
+    // 通过我们的服务端中转下载，以便自定义文件名
+    const fileResp = await fetch(fileUrl);
+
+    if (!fileResp.ok) {
+      console.error('从 Shopify CDN 获取文件失败:', {
+        status: fileResp.status,
+        statusText: fileResp.statusText,
+      });
+      return res.status(502).json({
+        error: '文件下载失败',
+        message: `获取文件内容失败: ${fileResp.status} ${fileResp.statusText}`,
+      });
+    }
+
+    // 读取文件内容到 Buffer
+    const arrayBuffer = await fileResp.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // 内容类型：优先使用远端的 Content-Type
+    const contentType =
+      fileResp.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+
+    // 处理下载文件名：优先使用我们传入的原始文件名，其次从 URL 推断
+    let downloadFileName = fileName;
+    if (!downloadFileName || typeof downloadFileName !== 'string') {
+      try {
+        const urlObj = new URL(fileUrl);
+        const pathname = urlObj.pathname || '';
+        const lastSegment = pathname.split('/').filter(Boolean).pop() || '';
+        // 去掉类似  ?v=xxx 之前的部分已经在 pathname 中处理，这里再尝试去掉可能附带的 hash 前缀
+        downloadFileName = lastSegment || 'download';
+      } catch (e) {
+        console.warn('从文件URL解析文件名失败，使用默认文件名:', e.message);
+        downloadFileName = 'download';
+      }
+    }
+
+    // RFC 5987 编码，兼容中文等非 ASCII 字符
+    const encodedFileName = encodeURIComponent(downloadFileName);
+    const safeFileName = downloadFileName.replace(/[^\x20-\x7E]/g, '_');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`
+    );
+
+    res.setHeader('Content-Length', buffer.length);
+    return res.status(200).send(buffer);
 
   } catch (error) {
     console.error('Shopify文件下载失败:', error);

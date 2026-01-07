@@ -378,6 +378,11 @@
     background: #d4edda;
     color: #155724;
   }
+
+  .status-rejected {
+    background: #f8d7da;
+    color: #721c24;
+  }
   
   
   .quote-items {
@@ -882,7 +887,7 @@ function renderOrderDetails(order) {
     });
 
     mainItems.forEach(item => {
-      const itemCard = createItemCard(item);
+      const itemCard = createItemCard(item, order.totalPrice);
       if (itemCard) itemsList.appendChild(itemCard);
     });
   }
@@ -899,27 +904,32 @@ function renderOrderDetails(order) {
 }
 
 // 创建订单项目卡片
-function createItemCard(item) {
+function createItemCard(item, orderTotalPrice) {
   const card = document.createElement('div');
   card.className = 'item-card';
   
-  // 获取价格：优先从 originalUnitPrice，其次从 price
-  let price = 0;
-  if (item.originalUnitPrice) {
-    price = parseFloat(item.originalUnitPrice);
-  } else if (item.price) {
-    price = parseFloat(item.price);
+  // 获取价格：totalPrice 是总价，不需要乘以数量
+  // 如果有多个 lineItems，按比例分配总价；如果只有一个，直接使用总价
+  let itemPrice = 0;
+  if (orderTotalPrice) {
+    itemPrice = parseFloat(orderTotalPrice);
+  } else {
+    // 回退：如果没有 totalPrice，尝试从 originalUnitPrice 获取（它已经是总价）
+    if (item.originalUnitPrice) {
+      itemPrice = parseFloat(item.originalUnitPrice);
+    } else if (item.price) {
+      itemPrice = parseFloat(item.price);
+    }
   }
   
   const quantity = item.quantity || 1;
-  const itemTotal = price * quantity;
   
   console.log('项目价格:', { 
+    orderTotalPrice,
     originalUnitPrice: item.originalUnitPrice, 
     price: item.price, 
-    calculatedPrice: price,
-    quantity,
-    itemTotal
+    itemPrice,
+    quantity
   });
   
   // 获取自定义属性
@@ -932,7 +942,7 @@ function createItemCard(item) {
   card.innerHTML = `
     <div class="item-header">
       <div class="item-name">${item.title || '未命名项目'}</div>
-      <div class="item-price">${price > 0 ? `$${itemTotal.toFixed(2)}` : '待报价'}</div>
+      <div class="item-price">${itemPrice > 0 ? `$${itemPrice.toFixed(2)}` : '待报价'}</div>
     </div>
     <div class="item-details">
       <div class="item-detail">
@@ -980,12 +990,12 @@ function updatePrices(order) {
     subtotal = parseFloat(order.totalPrice);
     console.log('从order.totalPrice获取价格:', subtotal);
   } 
-  // 如果没有totalPrice，尝试从lineItems计算
+  // 如果没有totalPrice，尝试从lineItems计算（注意：originalUnitPrice 已经是总价，不需要乘以数量）
   else if (order.lineItems && order.lineItems.length > 0) {
     order.lineItems.forEach(item => {
+      // originalUnitPrice 已经是总价，不需要乘以数量
       const price = parseFloat(item.originalUnitPrice || item.price || 0);
-      const quantity = item.quantity || 1;
-      subtotal += price * quantity;
+      subtotal += price;
     });
     console.log('从lineItems计算价格:', subtotal);
   }
@@ -1002,19 +1012,35 @@ function updatePrices(order) {
 function updateButtonState(order) {
   const placeOrderBtn = document.getElementById('place-order-btn');
   
-  // 检查是否已报价
-  let isQuoted = false;
-  
   // 优先检查自定义属性中的状态
+  let orderStatus = null;
   if (order.lineItems && order.lineItems.length > 0) {
     const firstItem = order.lineItems[0];
     const attrs = firstItem.customAttributes || [];
     const statusAttr = attrs.find(a => a.key === '状态');
     
-    if (statusAttr && statusAttr.value === '已报价') {
-      isQuoted = true;
-      console.log('✅ 从自定义属性确认已报价');
+    if (statusAttr) {
+      orderStatus = statusAttr.value;
+      console.log('从自定义属性获取状态:', orderStatus);
     }
+  }
+  
+  // 检查是否为"无法加工"状态
+  if (orderStatus === '无法加工') {
+    placeOrderBtn.disabled = true;
+    placeOrderBtn.textContent = '无法加工';
+    placeOrderBtn.style.opacity = '0.6';
+    placeOrderBtn.style.cursor = 'not-allowed';
+    console.log('❌ 按钮状态: 无法加工（禁用）');
+    return;
+  }
+  
+  // 检查是否已报价
+  let isQuoted = false;
+  
+  if (orderStatus === '已报价') {
+    isQuoted = true;
+    console.log('✅ 从自定义属性确认已报价');
   }
   
   // 回退到检查totalPrice
@@ -1057,6 +1083,11 @@ function getOrderStatus(order) {
         return {
           text: '已报价',
           className: 'status-quoted'
+        };
+      } else if (status === '无法加工') {
+        return {
+          text: '无法加工',
+          className: 'status-rejected'
         };
       }
     }
