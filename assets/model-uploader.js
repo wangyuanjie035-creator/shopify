@@ -1123,130 +1123,180 @@
     }
   }
 
-  // 提交到草稿订单（第一步：立即询价）
+  // 提交到草稿订单（支持 3D + 2D 多文件）
   async function submitToDraftOrder() {
-    console.log('📝 开始创建草稿订单...');
-    
-    // 获取客户信息
+    console.log('📝 开始创建草稿订单（3D+2D）...');
+
+    const API_BASE = (window.QUOTES_API_BASE || 'https://shopify-13s4.vercel.app/api').replace(/\/$/, '');
+
+    // 1. 获取客户信息
     const customerInfo = await getCustomerInfo();
     console.log('客户信息:', customerInfo);
-    
-    // 准备线上项目（Line Items）
+
+    if (!customerInfo || !customerInfo.email || !customerInfo.name) {
+      throw new Error('客户信息不完整，请确保已正确登录或输入客户信息');
+    }
+
+    // 2. 为每个被勾选的 3D 文件及其对应 2D 文件生成 lineItems
     const lineItems = [];
-    
-    // 处理每个选中的文件
+
+    // 辅助：上传单个文件到后端 /api/store-file-real，返回 { fileId, shopifyFileId, shopifyFileUrl, originalFileSize }
+    async function uploadToShopifyFiles(file) {
+      console.log('📤 上传文件到 /api/store-file-real:', file.name, file.type, file.size);
+      const readerResult = await getFileBase64(file); // 现有函数，返回 data:URL
+
+      const resp = await fetch(`${API_BASE}/store-file-real`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileData: readerResult,
+          fileName: file.name,
+          fileType: file.type || 'application/octet-stream',
+        }),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error('❌ 上传到 store-file-real 失败:', resp.status, text);
+        throw new Error(`上传文件失败 (${resp.status})`);
+      }
+
+      const json = await resp.json();
+      console.log('✅ store-file-real 返回:', json);
+      return {
+        fileId: json.fileId,
+        shopifyFileId: json.shopifyFileId,
+        shopifyFileUrl: json.shopifyFileUrl,
+        originalFileSize: json.originalFileSize,
+      };
+    }
+
     for (const fileId of selectedFileIds) {
       const fileData = fileManager.files.get(fileId);
-      if (!fileData) continue;
-      
-      console.log('处理文件:', fileData.file.name);
-      
-      // 获取文件配置
+      if (!fileData || !is3DFile(fileData.file.name)) continue; // 只对 3D 作为主件
+
+      console.log('处理 3D 文件:', fileData.file.name);
+
       const config = fileData.config || {};
-      
-      // 上传文件到本地存储
-      let realFileId = null;
+      const rule = getSurfaceRule(config.material, config.materialCategory);
+      const surfaceText = stringifySurfaceTreatments(
+        normalizeSurfaceTreatments(config.surfaceTreatments, config.surfaceEnabled !== false, rule),
+        config.surfaceEnabled !== false
+      );
+
+      // 2.1 上传 3D 文件到 Shopify Files
+      let threeDMeta;
       try {
-        if (window.fileStorageManager) {
-          realFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          await window.fileStorageManager.uploadFile(fileData.file, realFileId);
-          console.log('✅ 文件上传成功，ID:', realFileId);
-        } else {
-          console.warn('⚠️ 文件存储管理器未加载，使用虚拟文件ID');
-          realFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        }
-      } catch (uploadError) {
-        console.error('❌ 文件上传失败:', uploadError);
-        realFileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        threeDMeta = await uploadToShopifyFiles(fileData.file);
+      } catch (e) {
+        console.error('❌ 3D 文件上传失败，文件名:', fileData.file.name, e);
+        throw e;
       }
-      
-      // 创建线上项目（使用虚拟产品）
+
+      // 2.2 为 3D 文件创建 lineItem
       lineItems.push({
         title: fileData.file.name,
-        quantity: parseInt(config.quantity || 1),
-        price: 0, // 初始价格为0，等待报价
+        quantity: parseInt(config.quantity || 1, 10) || 1,
+        price: 0,
         requires_shipping: false,
         customAttributes: [
           { key: 'Order Type', value: '3D Model Quote' },
+          { key: '文件类型', value: '3D' },
           { key: '客户姓名', value: customerInfo.name },
           { key: '客户邮箱', value: customerInfo.email },
           { key: '文件大小', value: (fileData.file.size / 1024 / 1024).toFixed(2) + ' MB' },
           { key: '材料', value: config.material || '未指定' },
-          { key: '颜色与表面', value: config.finish || '自然色' },
-          { key: '精度等级', value: config.precision || '标准 (±0.1mm)' },
-          { key: '公差标准', value: config.tolerance || 'GB/T 1804-2000 m级' },
+          { key: '材料大类', value: config.materialCategory || getCategoryForMaterial(config.material) || '未指定' },
+          { key: '表面处理', value: surfaceText || '未指定' },
+          { key: '最严公差', value: config.tightest || 'GB/T 1804-2000 m级' },
           { key: '表面粗糙度', value: config.roughness || 'Ra3.2' },
           { key: '是否有螺纹', value: config.hasThread || 'no' },
-          { key: '是否有装配标记', value: config.hasAssembly || 'no' },
-          { key: '缩放比例', value: String(config.scale || 100) },
+          { key: '是否有装配关系', value: config.hasAssembly || 'no' },
           { key: '备注', value: config.note || '' },
           { key: 'Quote Status', value: 'Pending' },
-          { key: '文件ID', value: realFileId },
+          { key: '文件ID', value: threeDMeta.fileId },
+          { key: 'Shopify文件ID', value: threeDMeta.shopifyFileId },
+          { key: 'Shopify文件URL', value: threeDMeta.shopifyFileUrl },
+          { key: '原始文件大小', value: String(threeDMeta.originalFileSize || fileData.file.size) },
           { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
-        ]
+        ],
       });
+
+      // 2.3 查找对应的 2D 图纸，分别上传并创建 2D lineItem
+      const twoDFiles = getCorresponding2DFiles(fileId) || [];
+      console.log(`3D 文件 ${fileData.file.name} 对应的 2D 文件:`, twoDFiles.map(f => f.name));
+
+      for (const twoD of twoDFiles) {
+        const twoDData = fileManager.files.get(twoD.id);
+        if (!twoDData || !twoDData.file) continue;
+
+        let twoDMeta;
+        try {
+          twoDMeta = await uploadToShopifyFiles(twoDData.file);
+        } catch (e) {
+          console.error('❌ 2D 文件上传失败，文件名:', twoDData.file.name, e);
+          continue; // 不阻断整个订单
+        }
+
+        lineItems.push({
+          title: twoDData.file.name,
+          quantity: 1,
+          price: 0,
+          requires_shipping: false,
+          customAttributes: [
+            { key: 'Order Type', value: '2D Drawing' },
+            { key: '文件类型', value: '2D' },
+            { key: '关联3D文件', value: fileData.file.name },
+            { key: '客户姓名', value: customerInfo.name },
+            { key: '客户邮箱', value: customerInfo.email },
+            { key: '文件大小', value: (twoDData.file.size / 1024 / 1024).toFixed(2) + ' MB' },
+            { key: '备注', value: config.note || '' },
+            { key: '文件ID', value: twoDMeta.fileId },
+            { key: 'Shopify文件ID', value: twoDMeta.shopifyFileId },
+            { key: 'Shopify文件URL', value: twoDMeta.shopifyFileUrl },
+            { key: '原始文件大小', value: String(twoDMeta.originalFileSize || twoDData.file.size) },
+            { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
+          ],
+        });
+      }
     }
-    
-    console.log('准备创建草稿订单，线上项目:', lineItems);
-    
-    // 调用Vercel API创建草稿订单
-    const API_BASE = 'https://shopify-13s4.vercel.app/api';
-    
-    // 获取文件数据
-    const fileUrl = lineItems.length > 0 ? await getFirstFileDataUrl() : null;
-    console.log('文件数据长度:', fileUrl ? fileUrl.length : 0);
-    
-    // 获取第一个文件的名称
+
+    console.log('准备创建草稿订单，lineItems 数量:', lineItems.length, lineItems);
+
+    // 3. 选一个主文件名 & 构造请求体
     const firstFileId = Array.from(selectedFileIds)[0];
-    const firstFileName = firstFileId ? fileManager.files.get(firstFileId)?.file?.name : null;
-    
-    // 验证客户信息
-    if (!customerInfo || !customerInfo.email || !customerInfo.name) {
-      console.error('❌ 客户信息不完整:', customerInfo);
-      throw new Error('客户信息不完整，请确保已正确登录或输入客户信息');
-    }
-    
+    const firstFileName = firstFileId ? fileManager.files.get(firstFileId)?.file?.name : 'model.stl';
+
     const requestBody = {
       customerName: customerInfo.name,
       customerEmail: customerInfo.email,
       fileName: firstFileName || 'model.stl',
-      lineItems: lineItems,
-      fileUrl: fileUrl
+      lineItems,
+      fileUrl: null, // 文件都走 store-file-real，不再用单个 fileUrl
     };
-    
-    console.log('📤 请求体准备完成:', {
-      customerName: requestBody.customerName,
-      customerEmail: requestBody.customerEmail,
-      fileName: requestBody.fileName,
-      lineItemsCount: requestBody.lineItems.length,
-      hasFileData: !!requestBody.fileUrl
-    });
-    
+
     const response = await fetch(`${API_BASE}/submit-quote-real`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
     });
-    
-    console.log('API响应状态:', response.status);
-    
+
+    console.log('submit-quote-real 响应状态:', response.status);
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ 创建草稿订单失败:', response.status, errorText);
       throw new Error(`创建草稿订单失败: ${response.status} - ${errorText}`);
     }
-    
+
     const result = await response.json();
     console.log('✅ 草稿订单创建成功:', result);
-    
+
     if (!result.draftOrderId) {
-      console.error('❌ API返回结果中没有draftOrderId:', result);
-      throw new Error('API返回结果中没有draftOrderId');
+      throw new Error('API 返回结果中没有 draftOrderId');
     }
-    
+
     return result.draftOrderId;
   }
 
