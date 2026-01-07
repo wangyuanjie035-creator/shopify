@@ -194,20 +194,25 @@ export default async function handler(req, res) {
       updatedAttributes.push({ key: "客服邮箱", value: senderEmail });
     }
     
-    // 设置价格：无法加工时为0，否则使用传入的amount
-    const finalAmount = orderStatus === '无法加工' ? 0 : amount;
+    // 设置价格：无法加工时为0，否则使用传入的amount 作为【总价】
+    const quantity = currentLineItem.quantity || 1;
+    const finalAmount = orderStatus === '无法加工' ? 0 : amount; // 订单总价
+    const unitPrice = orderStatus === '无法加工'
+      ? 0
+      : (amount / quantity); // 平均到每件，避免被数量再次放大
     
     const updateInput = {
       taxExempt: true, // 免除税费，确保价格准确
       lineItems: [{
         title: currentLineItem.title,
         quantity: currentLineItem.quantity,
-        originalUnitPrice: finalAmount.toString(),  // ← 更新价格
+        // Shopify 的 total = originalUnitPrice * quantity，所以这里用总价 / 数量
+        originalUnitPrice: unitPrice.toString(),
         customAttributes: updatedAttributes
       }],
       note: orderStatus === '无法加工' 
         ? `无法加工\n时间: ${new Date().toLocaleString('zh-CN')}\n${note || ''}`
-        : `已报价: ¥${amount}\n报价时间: ${new Date().toLocaleString('zh-CN')}\n${note || ''}`
+        : `已报价总价: ¥${amount}\n折算单价: ¥${unitPrice.toFixed(2)}\n报价时间: ${new Date().toLocaleString('zh-CN')}\n${note || ''}`
     };
     
     const updateResult = await shopGql(updateMutation, {
