@@ -1083,28 +1083,33 @@
         return;
       }
       
-      // 步骤2: 发送邮件通知客户
-      const emailResponse = await fetch(`${API_BASE}/send-invoice-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          draftOrderId: orderId,
-          customMessage: `很抱歉，您的询价订单无法加工。\n\n订单号: ${orderName}\n\n无法加工的原因:\n${reason}\n\n修改建议:\n${suggestion}\n\n请您根据上述建议修改后重新提交询价。如有任何疑问，请联系我们的客服团队。\n\n感谢您的理解与配合！`
-        })
-      });
-      
-      const emailData = await emailResponse.json();
-      console.log('发送邮件响应:', emailData);
-      
-      if (emailData.success) {
-        alert(`✅ 订单已标记为"无法加工"并已发送邮件通知客户！\n\n📧 已发送至: ${customerEmail}\n📋 订单号: ${orderName}`);
-        loadOrders(); // 重新加载订单列表
-      } else {
-        alert('⚠️ 订单状态已更新，但发送邮件失败: ' + (emailData.message || '未知错误'));
-        loadOrders(); // 即使邮件发送失败，也重新加载订单列表
-      }
+      // 步骤2: 通过本地邮件客户端发送说明邮件（避免触发 Shopify 的付款链接邮件）
+      const subject = encodeURIComponent(`关于您的询价订单 ${orderName}：暂时无法加工`);
+      const bodyLines = [
+        `尊敬的客户，您好：`,
+        ``,
+        `很抱歉通知您，您的询价订单暂时无法加工。`,
+        ``,
+        `订单号：${orderName}`,
+        ``,
+        `无法加工的原因：`,
+        reason,
+        ``,
+        `修改建议：`,
+        suggestion,
+        ``,
+        `请您根据以上建议调整后重新提交询价，如有疑问欢迎直接回复此邮件与我们联系。`,
+        ``,
+        `感谢您的理解与配合！`
+      ];
+      const body = encodeURIComponent(bodyLines.join('\n'));
+
+      // 打开本地邮件客户端，由客服确认后发送，内容不会包含任何支付链接
+      const mailtoUrl = `mailto:${encodeURIComponent(customerEmail)}?subject=${subject}&body=${body}`;
+      window.location.href = mailtoUrl;
+
+      alert(`✅ 订单已标记为"无法加工"，并已为您生成邮件草稿。\n\n📧 收件人: ${customerEmail}\n📋 订单号: ${orderName}\n\n请在邮件客户端确认内容后发送给客户。`);
+      loadOrders(); // 重新加载订单列表
       
     } catch (error) {
       console.error('标记订单为无法加工失败:', error);
