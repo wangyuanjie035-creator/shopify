@@ -1539,6 +1539,8 @@
       surfaceToggleYes.checked = enabled;
       surfaceToggleNo.checked = !enabled;
       if (surfaceListContainer) surfaceListContainer.style.display = enabled ? 'block' : 'none';
+      // addSurfaceBtn 可能不存在，使用可选链或检查
+      const addSurfaceBtn = document.getElementById('add-surface-btn') || document.querySelector('.add-surface-btn');
       if (addSurfaceBtn) addSurfaceBtn.style.display = enabled ? 'inline-block' : 'none';
     }
     if (tightestSelect) tightestSelect.value = config.tightest || 'GB/T 1804-2000 m级';
