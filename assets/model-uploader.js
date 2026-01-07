@@ -3194,6 +3194,10 @@
 
   // 添加查看器控制按钮
   function addViewerControls() {
+    // 临时关闭右上角的高级工具按钮（重置视图 / 测量 / 标注 / 导出），避免误导用户
+    // 如需重新启用，只需删除下面这一行 return 即可。
+    return;
+
     if (!viewerContainer || !o3dvWrapper) return;
 
     const controlsContainer = document.createElement('div');
