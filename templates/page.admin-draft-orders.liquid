@@ -1046,15 +1046,19 @@
         const attrs = item.customAttributes || [];
         const fileIdAttr    = attrs.find(a => a.key === '文件ID');
         const fileNameAttr  = attrs.find(a => a.key === '文件') || attrs.find(a => a.key === '文件名');
-        const shopifyFileUrl = (attrs.find(a => a.key === 'Shopify文件URL') || {}).value;
-        const shopifyFileId  = (attrs.find(a => a.key === 'Shopify文件ID') || {}).value;
+        const shopifyFileUrlAttr = attrs.find(a => a.key === 'Shopify文件URL');
+        const shopifyFileIdAttr  = attrs.find(a => a.key === 'Shopify文件ID');
         const fileTypeAttr   = attrs.find(a => a.key === '文件类型');
+
+        const shopifyFileUrl = shopifyFileUrlAttr ? shopifyFileUrlAttr.value : null;
+        const shopifyFileId  = shopifyFileIdAttr ? shopifyFileIdAttr.value : null;
 
         let fileName = (fileNameAttr && fileNameAttr.value) || item.title || '未知文件';
         const fileTypeLabel = fileTypeAttr && fileTypeAttr.value === '2D' ? '2D' : '3D';
 
+        // 检查是否有任何文件标识符
         if (!fileIdAttr && !shopifyFileUrl && !shopifyFileId) {
-          console.log('该行无文件信息，跳过:', fileName);
+          console.log('该行无文件信息，跳过:', fileName, 'customAttributes:', attrs);
           continue;
         }
 
@@ -1069,14 +1073,28 @@
         console.log('准备下载行项目文件:', {
           title: item.title,
           fileName,
-          fileId: fileIdAttr && fileIdAttr.value,
+          fileType: fileTypeLabel,
+          fileId: fileIdAttr ? fileIdAttr.value : null,
           shopifyFileUrl,
-          shopifyFileId
+          shopifyFileId,
+          allAttrs: attrs.map(a => `${a.key}=${a.value?.substring(0, 50)}...`)
         });
 
-        // 1）优先使用 Shopify 文件 URL
-        if (shopifyFileUrl && (shopifyFileUrl.startsWith('http://') || shopifyFileUrl.startsWith('https://'))) {
-          console.log('使用 Shopify 文件 URL 下载:', shopifyFileUrl);
+        // 1）优先使用 Shopify 文件ID（最可靠，因为 URL 可能是临时地址）
+        if (shopifyFileId && shopifyFileId.startsWith('gid://')) {
+          const dlUrl = `${API_BASE}/download-file?shopifyFileId=${encodeURIComponent(shopifyFileId)}&fileName=${encodeURIComponent(fileName)}`;
+          console.log('✅ 使用 Shopify 文件ID 下载:', dlUrl);
+          window.open(dlUrl, '_blank');
+          // 添加小延迟，避免浏览器阻止多个弹窗
+          await new Promise(resolve => setTimeout(resolve, 300));
+          continue;
+        }
+
+        // 2）使用 Shopify 文件 URL（仅当不是临时地址时）
+        if (shopifyFileUrl && 
+            shopifyFileUrl.startsWith('https://') && 
+            !shopifyFileUrl.includes('shopify-staged-uploads.storage.googleapis.com')) {
+          console.log('✅ 使用 Shopify 文件 URL 下载:', shopifyFileUrl);
           const link = document.createElement('a');
           link.href = shopifyFileUrl;
           link.download = fileName;
@@ -1084,39 +1102,40 @@
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          continue;
-        }
-
-        // 2）有 Shopify 文件ID，则调用后端 /api/download-file?shopifyFileId=...
-        if (shopifyFileId && shopifyFileId.startsWith('gid://')) {
-          const dlUrl = `${API_BASE}/download-file?shopifyFileId=${encodeURIComponent(shopifyFileId)}&fileName=${encodeURIComponent(fileName)}`;
-          console.log('使用 Shopify 文件ID 下载:', dlUrl);
-          window.open(dlUrl, '_blank');
+          await new Promise(resolve => setTimeout(resolve, 300));
           continue;
         }
 
         // 3）最后退回到 fileId -> /api/download-file?id=...
         if (fileIdAttr && fileIdAttr.value) {
           const id = fileIdAttr.value;
-          console.log('通过 fileId 走 API 下载:', id);
-          const resp = await fetch(`${API_BASE}/download-file?id=${encodeURIComponent(id)}`);
-          if (!resp.ok) {
-            console.warn('通过 fileId 下载失败:', id, '状态:', resp.status);
+          console.log('⚠️ 通过 fileId 走 API 下载（降级方案）:', id);
+          try {
+            const resp = await fetch(`${API_BASE}/download-file?id=${encodeURIComponent(id)}`);
+            if (!resp.ok) {
+              console.warn('通过 fileId 下载失败:', id, '状态:', resp.status);
+              continue;
+            }
+            const blob = await resp.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            console.log('✅ API 文件下载完成:', fileName);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            continue;
+          } catch (err) {
+            console.error('❌ fileId 下载异常:', err);
             continue;
           }
-          const blob = await resp.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.style.display = 'none';
-          a.href = url;
-          a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          a.remove();
-          console.log('✅ API 文件下载完成:', fileName);
-          continue;
         }
+
+        console.warn('⚠️ 无法下载文件，缺少有效标识符:', fileName);
       }
 
       console.log('订单所有文件下载流程结束');
