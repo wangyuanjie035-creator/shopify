@@ -869,14 +869,21 @@ function renderOrderDetails(order) {
   const customerEl = document.getElementById('customer-name');
   customerEl.textContent = order.email || '未知客户';
   
-  // 渲染订单项目
+  // 渲染订单项目（仅显示 3D 主件，不展示 2D 图纸行）
   const itemsList = document.getElementById('items-list');
   itemsList.innerHTML = '';
   
   if (order.lineItems && order.lineItems.length > 0) {
-    order.lineItems.forEach(item => {
+    const mainItems = order.lineItems.filter(item => {
+      const attrs = item.customAttributes || [];
+      const typeAttr = attrs.find(a => a.key === '文件类型');
+      // 没有标记的默认按 3D 处理，仅显式标记为 2D 的才隐藏
+      return !typeAttr || typeAttr.value !== '2D';
+    });
+
+    mainItems.forEach(item => {
       const itemCard = createItemCard(item);
-      itemsList.appendChild(itemCard);
+      if (itemCard) itemsList.appendChild(itemCard);
     });
   }
   

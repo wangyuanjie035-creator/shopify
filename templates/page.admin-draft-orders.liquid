@@ -807,6 +807,7 @@
           </div>
           <div>
             <div><strong>商品:</strong> ${order.lineItems?.[0]?.title || '未指定'}</div>
+            <div><strong>数量:</strong> ${order.lineItems?.[0]?.quantity || 1}</div>
             <div><strong>价格:</strong> $${order.totalPrice || '0.00'}</div>
           </div>
         </div>
