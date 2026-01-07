@@ -1023,11 +1023,33 @@
           ${fileData.dimensions ? `<span class="file-dimensions">${fileData.dimensions.width.toFixed(1)} x ${fileData.dimensions.height.toFixed(1)} x ${fileData.dimensions.depth.toFixed(1)} mm</span>` : ''}
       </div>
             <div class="file-actions">
-          <button type="button" class="file-select" onclick="selectFile(${fileId})" ${fileId === fileManager.currentFileId ? 'style="background: #1976d2; color: white;"' : ''}>选择</button>
-          <button type="button" class="file-delete" onclick="removeFile(${fileId})">删除</button>
+          <button type="button" class="file-select" data-file-id="${fileId}" ${fileId === fileManager.currentFileId ? 'style="background: #1976d2; color: white;"' : ''}>选择</button>
+          <button type="button" class="file-delete" data-file-id="${fileId}">删除</button>
           </div>
           ${has2DIndicator}
         `;
+        
+        // 绑定事件处理器
+        const selectBtn = fileItem.querySelector('.file-select');
+        const deleteBtn = fileItem.querySelector('.file-delete');
+        if (selectBtn) {
+          selectBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = parseInt(selectBtn.dataset.fileId, 10);
+            console.log('点击选择按钮，fileId:', id, '类型:', typeof id);
+            selectFile(id);
+          });
+        }
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = parseInt(deleteBtn.dataset.fileId, 10);
+            console.log('点击删除按钮，fileId:', id, '类型:', typeof id);
+            removeFile(id);
+          });
+        }
         console.log('Created file item for:', fileData.file.name);
         fileItems.appendChild(fileItem);
         console.log('Appended file item to fileItems, fileItems.children.length:', fileItems.children.length);
@@ -1061,11 +1083,33 @@
               <span class="file-type">2D图纸</span>
             </div>
             <div class="file-actions">
-              <button type="button" class="file-select" onclick="selectFile(${fileId})" ${fileId === fileManager.currentFileId ? 'style="background: #1976d2; color: white;"' : ''}>选择</button>
-              <button type="button" class="file-delete" onclick="removeFile(${fileId})">删除</button>
+              <button type="button" class="file-select" data-file-id="${fileId}" ${fileId === fileManager.currentFileId ? 'style="background: #1976d2; color: white;"' : ''}>选择</button>
+              <button type="button" class="file-delete" data-file-id="${fileId}">删除</button>
             </div>
             <div class="file-warning">⚠️ 此2D文件缺少对应的3D文件</div>
           `;
+          
+          // 绑定事件处理器
+          const selectBtn = fileItem.querySelector('.file-select');
+          const deleteBtn = fileItem.querySelector('.file-delete');
+          if (selectBtn) {
+            selectBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const id = parseInt(selectBtn.dataset.fileId, 10);
+              console.log('点击选择按钮（2D），fileId:', id, '类型:', typeof id);
+              selectFile(id);
+            });
+          }
+          if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const id = parseInt(deleteBtn.dataset.fileId, 10);
+              console.log('点击删除按钮（2D），fileId:', id, '类型:', typeof id);
+              removeFile(id);
+            });
+          }
           fileItems.appendChild(fileItem);
         }
       }
@@ -1116,28 +1160,31 @@
 
   // 选择文件
   function selectFile(fileId) {
-    if (!fileManager.files.has(fileId)) {
-      console.warn('selectFile: 文件不存在', fileId);
+    // 确保 fileId 是数字类型
+    const numericFileId = typeof fileId === 'string' ? parseInt(fileId, 10) : fileId;
+    
+    if (!fileManager.files.has(numericFileId)) {
+      console.warn('selectFile: 文件不存在', numericFileId, '所有文件ID:', Array.from(fileManager.files.keys()));
       return;
     }
 
-    console.log('选择文件:', fileId, '当前文件:', fileManager.currentFileId);
+    console.log('选择文件:', numericFileId, '类型:', typeof numericFileId, '当前文件:', fileManager.currentFileId);
 
     // 先保存当前文件的配置（如果正在编辑其他文件）
-    if (fileManager.currentFileId && fileManager.currentFileId !== fileId) {
+    if (fileManager.currentFileId && fileManager.currentFileId !== numericFileId) {
       console.log('保存当前文件配置:', fileManager.currentFileId);
       updateCurrentFileParameters();
     }
 
-    fileManager.currentFileId = fileId;
-    const fileData = fileManager.files.get(fileId);
+    fileManager.currentFileId = numericFileId;
+    const fileData = fileManager.files.get(numericFileId);
     
     if (!fileData) {
-      console.error('selectFile: 文件数据不存在', fileId);
+      console.error('selectFile: 文件数据不存在', numericFileId);
       return;
     }
     
-    console.log('加载文件配置:', fileId, fileData.config);
+    console.log('加载文件配置:', numericFileId, fileData.config);
     
     // 更新参数显示（加载该文件的配置）
     // 使用标志位防止在加载配置时触发保存
@@ -1149,7 +1196,7 @@
     }
     
     // 加载模型
-    loadModelForFile(fileId);
+    loadModelForFile(numericFileId);
     
     // 验证当前文件配置
     validateFileConfiguration(fileData);
@@ -1206,9 +1253,17 @@
 
   // 删除文件
   function removeFile(fileId) {
-    if (!fileManager.files.has(fileId)) return;
+    // 确保 fileId 是数字类型
+    const numericFileId = typeof fileId === 'string' ? parseInt(fileId, 10) : fileId;
+    
+    if (!fileManager.files.has(numericFileId)) {
+      console.warn('removeFile: 文件不存在', numericFileId, '所有文件ID:', Array.from(fileManager.files.keys()));
+      return;
+    }
+    
+    console.log('删除文件:', numericFileId, '类型:', typeof numericFileId);
 
-    const fileData = fileManager.files.get(fileId);
+    const fileData = fileManager.files.get(numericFileId);
     
     // 从场景中移除模型
     if (fileData.model && scene) {
@@ -1216,13 +1271,13 @@
     }
 
     // 从文件管理器中移除
-    fileManager.files.delete(fileId);
+    fileManager.files.delete(numericFileId);
 
     // 从批量选择中移除
-    selectedFileIds.delete(fileId);
+    selectedFileIds.delete(numericFileId);
 
     // 如果删除的是当前文件，选择另一个文件
-    if (fileId === fileManager.currentFileId) {
+    if (numericFileId === fileManager.currentFileId) {
       if (fileManager.files.size > 0) {
         const firstFileId = fileManager.files.keys().next().value;
         selectFile(firstFileId);
