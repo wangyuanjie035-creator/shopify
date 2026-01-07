@@ -1118,10 +1118,15 @@
   function selectFile(fileId) {
     if (!fileManager.files.has(fileId)) return;
 
+    // 先保存当前文件的配置（如果正在编辑其他文件）
+    if (fileManager.currentFileId && fileManager.currentFileId !== fileId) {
+      updateCurrentFileParameters();
+    }
+
     fileManager.currentFileId = fileId;
     const fileData = fileManager.files.get(fileId);
     
-    // 更新参数显示
+    // 更新参数显示（加载该文件的配置）
     updateParameterDisplay(fileData.config);
     
     // 加载模型
@@ -1582,9 +1587,9 @@
     }
   }
 
-  // 提交到草稿订单（支持 3D + 2D 多文件）
+  // 提交到草稿订单（支持 3D + 2D 多文件，每个3D文件创建独立订单）
   async function submitToDraftOrder() {
-    console.log('📝 开始创建草稿订单（3D+2D）...');
+    console.log('📝 开始创建草稿订单（每个3D文件独立订单）...');
 
     const API_BASE = (window.QUOTES_API_BASE || 'https://shopify-13s4.vercel.app/api').replace(/\/$/, '');
 
@@ -1596,10 +1601,12 @@
       throw new Error('客户信息不完整，请确保已正确登录或输入客户信息');
     }
 
-    // 2. 为每个被勾选的 3D 文件及其对应 2D 文件生成 lineItems
-    const lineItems = [];
+    // 2. 先保存当前文件的配置（如果正在编辑）
+    if (fileManager.currentFileId) {
+      updateCurrentFileParameters();
+    }
 
-    // 辅助：上传单个文件到后端 /api/store-file-real，返回 { fileId, shopifyFileId, shopifyFileUrl, originalFileSize }
+    // 3. 辅助：上传单个文件到后端 /api/store-file-real，返回 { fileId, shopifyFileId, shopifyFileUrl, originalFileSize }
     async function uploadToShopifyFiles(file) {
       console.log('📤 上传文件到 /api/store-file-real:', file.name, file.type, file.size);
       const readerResult = await getFileBase64(file); // 现有函数，返回 data:URL
@@ -1630,11 +1637,18 @@
       };
     }
 
-    for (const fileId of selectedFileIds) {
-      const fileData = fileManager.files.get(fileId);
-      if (!fileData || !is3DFile(fileData.file.name)) continue; // 只对 3D 作为主件
+    // 4. 为每个 3D 文件创建独立的订单
+    const draftOrderIds = [];
+    const selected3DFileIds = Array.from(selectedFileIds).filter(id => {
+      const fileData = fileManager.files.get(id);
+      return fileData && is3DFile(fileData.file.name);
+    });
 
-      console.log('处理 3D 文件:', fileData.file.name);
+    for (const fileId of selected3DFileIds) {
+      const fileData = fileManager.files.get(fileId);
+      if (!fileData || !is3DFile(fileData.file.name)) continue;
+
+      console.log('📦 为 3D 文件创建独立订单:', fileData.file.name);
 
       const config = fileData.config || {};
       const rule = getSurfaceRule(config.material, config.materialCategory);
@@ -1643,7 +1657,7 @@
         config.surfaceEnabled !== false
       );
 
-      // 2.1 上传 3D 文件到 Shopify Files
+      // 4.1 上传 3D 文件到 Shopify Files
       let threeDMeta;
       try {
         threeDMeta = await uploadToShopifyFiles(fileData.file);
@@ -1652,7 +1666,10 @@
         throw e;
       }
 
-      // 2.2 为 3D 文件创建 lineItem
+      // 4.2 为该 3D 文件及其对应 2D 文件生成 lineItems
+      const lineItems = [];
+
+      // 4.2.1 为 3D 文件创建 lineItem
       lineItems.push({
         title: fileData.file.name,
         quantity: parseInt(config.quantity || 1, 10) || 1,
@@ -1681,7 +1698,7 @@
         ],
       });
 
-      // 2.3 查找对应的 2D 图纸，分别上传并创建 2D lineItem
+      // 4.2.2 查找对应的 2D 图纸，分别上传并创建 2D lineItem
       const twoDFiles = getCorresponding2DFiles(fileId) || [];
       console.log(`3D 文件 ${fileData.file.name} 对应的 2D 文件:`, twoDFiles.map(f => f.name));
 
@@ -1718,45 +1735,58 @@
           ],
         });
       }
+
+      console.log(`为 ${fileData.file.name} 创建订单，lineItems 数量:`, lineItems.length);
+
+      // 4.3 为该 3D 文件创建独立的草稿订单
+      const requestBody = {
+        customerName: customerInfo.name,
+        customerEmail: customerInfo.email,
+        fileName: fileData.file.name,
+        lineItems,
+        fileUrl: null, // 文件都走 store-file-real，不再用单个 fileUrl
+      };
+
+      try {
+        const response = await fetch(`${API_BASE}/submit-quote-real`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        console.log(`submit-quote-real 响应状态 (${fileData.file.name}):`, response.status);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`❌ 创建草稿订单失败 (${fileData.file.name}):`, response.status, errorText);
+          throw new Error(`创建草稿订单失败 (${fileData.file.name}): ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log(`✅ 草稿订单创建成功 (${fileData.file.name}):`, result);
+
+        if (result.draftOrderId) {
+          draftOrderIds.push(result.draftOrderId);
+        } else {
+          console.warn(`⚠️ API 返回结果中没有 draftOrderId (${fileData.file.name}):`, result);
+        }
+      } catch (error) {
+        console.error(`❌ 创建订单失败 (${fileData.file.name}):`, error);
+        // 继续处理下一个文件，不中断整个流程
+        continue;
+      }
     }
 
-    console.log('准备创建草稿订单，lineItems 数量:', lineItems.length, lineItems);
-
-    // 3. 选一个主文件名 & 构造请求体
-    const firstFileId = Array.from(selectedFileIds)[0];
-    const firstFileName = firstFileId ? fileManager.files.get(firstFileId)?.file?.name : 'model.stl';
-
-    const requestBody = {
-      customerName: customerInfo.name,
-      customerEmail: customerInfo.email,
-      fileName: firstFileName || 'model.stl',
-      lineItems,
-      fileUrl: null, // 文件都走 store-file-real，不再用单个 fileUrl
-    };
-
-    const response = await fetch(`${API_BASE}/submit-quote-real`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    console.log('submit-quote-real 响应状态:', response.status);
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`创建草稿订单失败: ${response.status} - ${errorText}`);
+    if (draftOrderIds.length === 0) {
+      throw new Error('没有成功创建任何草稿订单');
     }
 
-    const result = await response.json();
-    console.log('✅ 草稿订单创建成功:', result);
-
-    if (!result.draftOrderId) {
-      throw new Error('API 返回结果中没有 draftOrderId');
-    }
-
-    return result.draftOrderId;
+    console.log(`✅ 成功创建 ${draftOrderIds.length} 个独立订单:`, draftOrderIds);
+    
+    // 返回第一个订单ID（用于跳转）
+    return draftOrderIds[0];
   }
 
   // 提交到购物车（第二步：从草稿订单到购物车）
