@@ -887,9 +887,11 @@ async function loadOrderDetails() {
 function renderOrderDetails(order) {
   console.log('渲染订单详情:', order);
   
-  // 更新订单号
+  // 更新订单号（使用客户信息 + 创建时间）
   const orderNumberEl = document.getElementById('order-number');
-  orderNumberEl.textContent = `订单 #${order.name || order.id}`;
+  const customerLabelForNumber = order.email || '客户';
+  const createdAtLabel = formatDate(order.createdAt);
+  orderNumberEl.textContent = `订单 ${customerLabelForNumber} - ${createdAtLabel}`;
   
   // 更新状态
   const statusEl = document.getElementById('order-status');
@@ -1021,6 +1023,62 @@ function createItemCard(item, orderTotalPrice) {
     return attr ? attr.value : '';
   };
   
+  // 新参数映射（与后台管理界面保持一致）
+  const paramOrder = [
+    { key: '材料大类', label: '材料类别' },
+    { key: '材料', label: '材料类型' },
+    { key: '表面处理', label: '表面处理' },
+    { key: '最严公差', label: '最严公差' },
+    { key: '表面粗糙度', label: '表面粗糙度' },
+    { key: '是否有螺纹', label: '是否有螺纹' },
+    { key: '是否有装配关系', label: '是否有装配关系' }
+  ];
+
+  const paramDetails = [];
+
+  // 优先使用新字段
+  paramOrder.forEach(config => {
+    let value = getAttribute(config.key);
+    if (value && value !== '未指定' && value !== '未提供') {
+      if (config.key === '是否有螺纹' || config.key === '是否有装配关系') {
+        value = (value === 'yes' || value === '是') ? '是' : '否';
+      }
+      paramDetails.push({ label: config.label, value });
+    }
+  });
+
+  // 兼容旧字段（如果新字段不存在）
+  const legacyParams = ['颜色', '精度', '精度等级', '公差标准', '颜色与表面', '是否有装配标记', '缩放比例'];
+  legacyParams.forEach(key => {
+    const mapping = {
+      '颜色': { targetKey: '材料', label: '材料类型' },
+      '精度': { targetKey: '最严公差', label: '最严公差' },
+      '精度等级': { targetKey: '最严公差', label: '最严公差' },
+      '公差标准': { targetKey: '最严公差', label: '最严公差' },
+      '颜色与表面': { targetKey: '表面处理', label: '表面处理' },
+      '是否有装配标记': { targetKey: '是否有装配关系', label: '是否有装配关系' },
+      '缩放比例': { targetKey: null, label: '缩放比例' }
+    };
+
+    const mapInfo = mapping[key];
+    if (!mapInfo) return;
+
+    // 如果对应的新字段已经有值，就不再重复显示旧字段
+    if (mapInfo.targetKey && paramDetails.some(p => p.label === mapInfo.label)) {
+      return;
+    }
+
+    let value = getAttribute(key);
+    if (value && value !== '未指定' && value !== '未提供') {
+      if (key === '是否有装配标记') {
+        value = (value === 'yes' || value === '是') ? '是' : '否';
+      } else if (key === '缩放比例') {
+        value = value.includes('%') ? value : value + '%';
+      }
+      paramDetails.push({ label: mapInfo.label, value });
+    }
+  });
+  
   card.innerHTML = `
     <div class="item-header">
       <div class="item-name">${item.title || '未命名项目'}</div>
@@ -1031,26 +1089,12 @@ function createItemCard(item, orderTotalPrice) {
         <span class="detail-label">数量</span>
         <span>${quantity}</span>
       </div>
+      ${paramDetails.map(p => `
       <div class="item-detail">
-        <span class="detail-label">材料</span>
-        <span>${getAttribute('材料') || '未指定'}</span>
+        <span class="detail-label">${p.label}</span>
+        <span>${p.value}</span>
       </div>
-      <div class="item-detail">
-        <span class="detail-label">颜色与表面</span>
-        <span>${getAttribute('颜色与表面') || '自然色'}</span>
-      </div>
-      <div class="item-detail">
-        <span class="detail-label">精度等级</span>
-        <span>${getAttribute('精度等级') || '标准'}</span>
-      </div>
-      <div class="item-detail">
-        <span class="detail-label">公差标准</span>
-        <span>${getAttribute('公差标准') || 'GB/T 1804-2000 m级'}</span>
-      </div>
-      <div class="item-detail">
-        <span class="detail-label">表面粗糙度</span>
-        <span>${getAttribute('表面粗糙度') || 'Ra3.2'}</span>
-      </div>
+      `).join('')}
       ${getAttribute('备注') ? `
       <div class="item-detail" style="grid-column: 1 / -1;">
         <span class="detail-label">备注</span>
@@ -1431,13 +1475,20 @@ function renderOrdersList(orders) {
     }
   }
   
+  // 按创建时间倒序排序（最新的在最上面）
+  const sortedOrders = [...orders].sort((a, b) => {
+    const aTime = new Date(a.createdAt).getTime() || 0;
+    const bTime = new Date(b.createdAt).getTime() || 0;
+    return bTime - aTime;
+  });
+
   ordersListContainer.innerHTML = `
     <div class="orders-list-header">
       <h2>我的询价订单</h2>
       <p>点击订单查看详情</p>
     </div>
     <div class="orders-list">
-      ${orders.map(order => createOrderCard(order)).join('')}
+      ${sortedOrders.map(order => createOrderCard(order)).join('')}
     </div>
   `;
   
@@ -1448,11 +1499,13 @@ function renderOrdersList(orders) {
 function createOrderCard(order) {
   const status = getOrderStatus(order);
   const date = formatDate(order.createdAt);
+  const customerLabelForNumber = order.email || '客户';
+  const displayNumber = `${customerLabelForNumber} - ${date}`;
   
   return `
     <div class="order-card" onclick="viewOrder('${order.id}')">
       <div class="order-card-header">
-        <div class="order-number">${order.name}</div>
+        <div class="order-number">${displayNumber}</div>
         <div class="order-status ${status.className}">${status.text}</div>
       </div>
       <div class="order-card-body">
