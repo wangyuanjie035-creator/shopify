@@ -15,5 +15,10 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
+  },
+  "scripts": {
+    "test:features": "node scripts/test-palmetto-features.mjs",
+    "ngrok:dev": "powershell -ExecutionPolicy Bypass -File scripts/ngrok-dev.ps1",
+    "test:ngrok": "powershell -ExecutionPolicy Bypass -File scripts/test-ngrok-palmetto.ps1"
   }
 }

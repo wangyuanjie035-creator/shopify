@@ -107,15 +107,23 @@ export default async function handler(req, res) {
     const { status, limit = 50, email, admin } = req.query;
 
     // 管理员白名单（逗号分隔，环境变量 ADMIN_EMAIL_WHITELIST）
-    const adminWhitelist = (process.env.ADMIN_EMAIL_WHITELIST || 'jonathan.wang@sainstore.com','issac.yu@sainstore.com')
+    const adminWhitelist = (process.env.ADMIN_EMAIL_WHITELIST || 'jonathan.wang@sainstore.com,issac.yu@sainstore.com')
       .split(',')
       .map(e => e.trim().toLowerCase())
       .filter(Boolean);
     const requesterEmail = (email || '').trim().toLowerCase();
     const isAdminRequest = ['1', 'true', 'yes'].includes((admin || '').toString().toLowerCase());
 
+    console.log('🔐 权限检查:', {
+      requesterEmail,
+      isAdminRequest,
+      adminWhitelist,
+      isInWhitelist: adminWhitelist.includes(requesterEmail)
+    });
+
     // 认证与授权
     if (!requesterEmail) {
+      console.warn('❌ 缺少邮箱参数');
       return res.status(401).json({
         success: false,
         error: 'missing_email',
@@ -123,10 +131,15 @@ export default async function handler(req, res) {
       });
     }
     if (isAdminRequest && !adminWhitelist.includes(requesterEmail)) {
+      console.warn('❌ 管理员权限被拒绝:', {
+        requesterEmail,
+        adminWhitelist,
+        isInWhitelist: adminWhitelist.includes(requesterEmail)
+      });
       return res.status(403).json({
         success: false,
         error: 'forbidden',
-        message: '您无权查看全部询价单'
+        message: `您无权查看全部询价单。当前邮箱: ${requesterEmail}，白名单: ${adminWhitelist.join(', ')}`
       });
     }
 

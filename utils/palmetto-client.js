@@ -1,0 +1,283 @@
+/** Palmetto C++ engine module names (see GET /api/analyze/modules) */
+const DEFAULT_MODULES = [
+  'recognize_holes',
+  'recognize_shafts',
+  'recognize_fillets',
+  'recognize_cavities',
+];
+
+/** Legacy recognizer aliases from older API docs */
+const MODULE_ALIASES = {
+  hole_detector: 'recognize_holes',
+  shaft_detector: 'recognize_shafts',
+  fillet_detector: 'recognize_fillets',
+  cavity_detector: 'recognize_cavities',
+  thin_wall_detector: 'recognize_thin_walls',
+  aag_dump: 'aag_dump',
+};
+
+function getBaseUrl() {
+  const base = process.env.PALMETTO_SERVICE_URL || 'http://localhost:8000';
+  return base.replace(/\/$/, '');
+}
+
+function ensureConfigured() {
+  if (!process.env.PALMETTO_SERVICE_URL && process.env.NODE_ENV === 'production') {
+    console.warn('PALMETTO_SERVICE_URL is not set; falling back to http://localhost:8000');
+  }
+}
+
+function resolveModules(modules) {
+  if (!modules || modules.length === 0) {
+    return DEFAULT_MODULES.join(',');
+  }
+
+  return modules
+    .map((name) => MODULE_ALIASES[name] || name)
+    .join(',');
+}
+
+async function parseJsonResponse(response, context) {
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`${context} returned non-JSON (${response.status}): ${text.slice(0, 300)}`);
+  }
+
+  if (!response.ok) {
+    const detail = data.detail || data.message || text.slice(0, 300);
+    throw new Error(`${context} failed (${response.status}): ${detail}`);
+  }
+
+  return data;
+}
+
+function mapPalmettoFeature(raw) {
+  const params = raw.params || {};
+  const type = raw.type || 'unknown';
+  const subtype = raw.subtype || '';
+
+  let featureType = type;
+  if (type === 'hole') {
+    if (subtype === 'counterbored') featureType = 'hole_counterbored';
+    else featureType = 'hole_simple';
+  } else if (type === 'cavity') {
+    featureType = subtype === 'pocket' ? 'pocket' : 'cavity_blind';
+  } else if (type === 'shaft' || type === 'fillet' || type === 'chamfer') {
+    featureType = type;
+  } else if (subtype) {
+    featureType = `${type}_${subtype}`;
+  }
+
+  const properties = {};
+  if (params.diameter_mm != null) properties.diameter = params.diameter_mm;
+  if (params.max_diameter_mm != null) properties.diameter = params.max_diameter_mm;
+  if (params.radius_mm != null) properties.radius = params.radius_mm;
+  if (params.estimated_volume_mm3 != null) properties.volume = params.estimated_volume_mm3;
+  if (params.total_area_mm2 != null) properties.floor_area = params.total_area_mm2;
+  if (params.width_mm != null) properties.width = params.width_mm;
+  if (params.length != null) properties.length = params.length;
+
+  if (params.axis_x != null) {
+    properties.axis = [params.axis_x, params.axis_y, params.axis_z];
+  }
+
+  return {
+    feature_id: raw.id,
+    feature_type: featureType,
+    confidence: raw.confidence,
+    face_ids: raw.faces || [],
+    properties,
+    source: raw.source || null,
+    subtype,
+  };
+}
+
+export async function checkPalmettoHealth() {
+  ensureConfigured();
+  const baseUrl = getBaseUrl();
+
+  const healthResponse = await fetch(`${baseUrl}/health`, { method: 'GET' });
+  if (!healthResponse.ok) {
+    throw new Error(`Palmetto is unreachable at ${baseUrl} (${healthResponse.status})`);
+  }
+
+  let engineAvailable = null;
+  try {
+    const engineResponse = await fetch(`${baseUrl}/api/analyze/health`, { method: 'GET' });
+    if (engineResponse.ok) {
+      const engineHealth = await engineResponse.json();
+      engineAvailable = engineHealth.available ?? null;
+    }
+  } catch {
+    // Optional endpoint
+  }
+
+  return { ok: true, baseUrl, engineAvailable };
+}
+
+export async function listModules() {
+  ensureConfigured();
+  const response = await fetch(`${getBaseUrl()}/api/analyze/modules`, { method: 'GET' });
+  const data = await parseJsonResponse(response, 'List modules');
+  return data.modules || [];
+}
+
+/** @deprecated Use listModules() — old API path no longer exists */
+export async function listRecognizers() {
+  const modules = await listModules();
+  return modules.map((module) => module.name);
+}
+
+export async function uploadStepFile(fileBuffer, fileName) {
+  ensureConfigured();
+  const form = new FormData();
+  const blob = new Blob([fileBuffer], { type: 'application/step' });
+  form.append('file', blob, fileName);
+
+  const response = await fetch(`${getBaseUrl()}/api/analyze/upload`, {
+    method: 'POST',
+    body: form,
+  });
+
+  return parseJsonResponse(response, 'Upload STEP file');
+}
+
+export async function processModel(modelId, options = {}) {
+  ensureConfigured();
+  const modules = resolveModules(options.modules || options.recognizers);
+
+  const response = await fetch(`${getBaseUrl()}/api/analyze/process`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model_id: modelId,
+      modules,
+      analyze_thickness: false,
+      enable_dfm_geometry: false,
+      enable_sdf: false,
+      enable_thickness_heatmap: false,
+    }),
+  });
+
+  return parseJsonResponse(response, 'Process model');
+}
+
+/** @deprecated Use processModel() — recognition runs in one C++ pass now */
+export async function recognizeFeatures(modelId, recognizer, parameters = {}) {
+  return processModel(modelId, { modules: [recognizer], ...parameters });
+}
+
+export async function deleteModel(modelId) {
+  ensureConfigured();
+  try {
+    await fetch(`${getBaseUrl()}/api/models/${modelId}`, { method: 'DELETE' });
+  } catch (error) {
+    console.warn('Failed to delete Palmetto model:', modelId, error.message);
+  }
+}
+
+export async function analyzeAllFeatures(modelId, modules = DEFAULT_MODULES) {
+  const startedAt = Date.now();
+  const errors = [];
+
+  try {
+    const processResult = await processModel(modelId, { modules });
+    const mappedFeatures = (processResult.features || []).map(mapPalmettoFeature);
+
+    if (!processResult.success) {
+      errors.push({
+        recognizer: 'process',
+        message: processResult.error || 'C++ engine reported failure',
+      });
+    }
+
+    return {
+      modelId,
+      modules: resolveModules(modules).split(','),
+      results: [{ features: mappedFeatures }],
+      errors,
+      executionMs: Date.now() - startedAt,
+      metadata: processResult.metadata || {},
+      artifacts: processResult.artifacts || {},
+    };
+  } catch (error) {
+    errors.push({
+      recognizer: 'process',
+      message: error.message,
+    });
+
+    return {
+      modelId,
+      modules: resolveModules(modules).split(','),
+      results: [],
+      errors,
+      executionMs: Date.now() - startedAt,
+      metadata: {},
+      artifacts: {},
+    };
+  }
+}
+
+export async function downloadFileFromUrl(fileUrl) {
+  const response = await fetch(fileUrl, { method: 'GET' });
+  if (!response.ok) {
+    throw new Error(`Failed to download STEP file (${response.status}): ${fileUrl}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+function decodeBase64FileData(fileData) {
+  const base64 = fileData.includes(',') ? fileData.split(',')[1] : fileData;
+  return Buffer.from(base64, 'base64');
+}
+
+export async function analyzeStepInput({
+  fileUrl,
+  fileName,
+  fileData,
+  modules,
+  recognizers,
+  cleanupModel = true,
+}) {
+  if (!fileName) {
+    throw new Error('fileName is required');
+  }
+
+  let fileBuffer;
+  if (fileUrl) {
+    fileBuffer = await downloadFileFromUrl(fileUrl);
+  } else if (fileData) {
+    fileBuffer = decodeBase64FileData(fileData);
+  } else {
+    throw new Error('Either fileUrl or fileData is required');
+  }
+
+  await checkPalmettoHealth();
+
+  const upload = await uploadStepFile(fileBuffer, fileName);
+  const modelId = upload.model_id;
+  const selectedModules = modules || recognizers || DEFAULT_MODULES;
+
+  try {
+    const analysis = await analyzeAllFeatures(modelId, selectedModules);
+    return {
+      upload: {
+        ...upload,
+        topology_stats: analysis.metadata?.topology || null,
+      },
+      analysis,
+      fileSizeBytes: fileBuffer.length,
+    };
+  } finally {
+    if (cleanupModel) {
+      await deleteModel(modelId);
+    }
+  }
+}
+
+export { DEFAULT_MODULES, DEFAULT_MODULES as DEFAULT_RECOGNIZERS, mapPalmettoFeature };

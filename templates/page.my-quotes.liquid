@@ -378,6 +378,11 @@
     background: #d4edda;
     color: #155724;
   }
+
+  .status-rejected {
+    background: #f8d7da;
+    color: #721c24;
+  }
   
   
   .quote-items {
@@ -484,6 +489,34 @@
     font-size: 24px !important;
     font-weight: 600 !important;
     color: #e91e63 !important;
+  }
+
+  /* 无法加工提示 */
+  .unprocessable-banner {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 16px 20px;
+    border-radius: 8px;
+    margin-bottom: 18px;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+
+  .unprocessable-banner-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .unprocessable-banner-title span.icon {
+    font-size: 18px;
+  }
+
+  .unprocessable-banner p {
+    margin: 2px 0;
   }
   
   .quote-actions {
@@ -615,6 +648,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 无法加工原因与建议 -->
+    <div id="unprocessable-reason" class="unprocessable-banner" style="display:none;"></div>
     
     <div class="quote-items">
       <div class="section-title">订单项目</div>
@@ -649,7 +685,7 @@
 // API配置
 const API_BASE = 'https://shopify-13s4.vercel.app/api';
 const customerEmail = (document.querySelector('.customer-authenticated')?.dataset.customerEmail || '').toLowerCase();
-const ADMIN_EMAILS = ['jonathan.wang@sainstore.com'];
+const ADMIN_EMAILS = ['jonathan.wang@sainstore.com', 'issac.yu@sainstore.com'];
 const isAdmin = ADMIN_EMAILS.some(e => e.toLowerCase() === customerEmail);
 const authParams = () => isAdmin
   ? `admin=1&email=${encodeURIComponent(customerEmail)}`
@@ -851,15 +887,68 @@ async function loadOrderDetails() {
 function renderOrderDetails(order) {
   console.log('渲染订单详情:', order);
   
-  // 更新订单号
+  // 更新订单号（使用客户信息 + 创建时间）
   const orderNumberEl = document.getElementById('order-number');
-  orderNumberEl.textContent = `订单 #${order.name || order.id}`;
+  const customerLabelForNumber = order.email || '客户';
+  const createdAtLabel = formatDate(order.createdAt);
+  orderNumberEl.textContent = `订单 ${customerLabelForNumber} - ${createdAtLabel}`;
   
   // 更新状态
   const statusEl = document.getElementById('order-status');
   const status = getOrderStatus(order);
   statusEl.textContent = status.text;
   statusEl.className = `quote-status ${status.className}`;
+
+  // 如果是“无法加工”，在前端展示原因和修改建议（从备注中读取）
+  const unprocessableEl = document.getElementById('unprocessable-reason');
+  if (status.text === '无法加工' && order.lineItems && order.lineItems.length > 0) {
+    const firstItem = order.lineItems[0];
+    const attrs = firstItem.customAttributes || [];
+    const noteAttr = attrs.find(a => a.key === '备注');
+
+    if (noteAttr && noteAttr.value) {
+      // 备注格式形如：无法加工\n\n原因: xxx\n修改建议: yyy
+      const raw = noteAttr.value;
+      let reasonText = '';
+      let suggestionText = '';
+
+      try {
+        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const reasonLine = lines.find(l => l.startsWith('原因'));
+        const suggestionLine = lines.find(l => l.startsWith('修改建议'));
+        if (reasonLine) {
+          reasonText = reasonLine.replace(/^原因[:：]?\s*/, '');
+        }
+        if (suggestionLine) {
+          suggestionText = suggestionLine.replace(/^修改建议[:：]?\s*/, '');
+        }
+      } catch (e) {
+        console.warn('解析无法加工备注失败，使用原文展示:', e);
+      }
+
+      const finalReason = reasonText || raw;
+
+      unprocessableEl.innerHTML = `
+        <div class="unprocessable-banner-title">
+          <span class="icon">⚠️</span>
+          <span>该订单当前暂无法加工</span>
+        </div>
+        <p><strong>原因：</strong>${finalReason}</p>
+        ${suggestionText ? `<p><strong>修改建议：</strong>${suggestionText}</p>` : ''}
+        <p>如有疑问，请联系平台客服或回复我们的通知邮件。</p>
+      `;
+      unprocessableEl.style.display = 'block';
+    } else {
+      unprocessableEl.style.display = 'none';
+      unprocessableEl.innerHTML = '';
+    }
+  } else {
+    // 其他状态隐藏提示
+    if (unprocessableEl) {
+      unprocessableEl.style.display = 'none';
+      unprocessableEl.innerHTML = '';
+    }
+  }
   
   // 更新日期
   const dateEl = document.getElementById('order-date');
@@ -869,14 +958,21 @@ function renderOrderDetails(order) {
   const customerEl = document.getElementById('customer-name');
   customerEl.textContent = order.email || '未知客户';
   
-  // 渲染订单项目
+  // 渲染订单项目（仅显示 3D 主件，不展示 2D 图纸行）
   const itemsList = document.getElementById('items-list');
   itemsList.innerHTML = '';
   
   if (order.lineItems && order.lineItems.length > 0) {
-    order.lineItems.forEach(item => {
-      const itemCard = createItemCard(item);
-      itemsList.appendChild(itemCard);
+    const mainItems = order.lineItems.filter(item => {
+      const attrs = item.customAttributes || [];
+      const typeAttr = attrs.find(a => a.key === '文件类型');
+      // 没有标记的默认按 3D 处理，仅显式标记为 2D 的才隐藏
+      return !typeAttr || typeAttr.value !== '2D';
+    });
+
+    mainItems.forEach(item => {
+      const itemCard = createItemCard(item, order.totalPrice);
+      if (itemCard) itemsList.appendChild(itemCard);
     });
   }
   
@@ -892,27 +988,32 @@ function renderOrderDetails(order) {
 }
 
 // 创建订单项目卡片
-function createItemCard(item) {
+function createItemCard(item, orderTotalPrice) {
   const card = document.createElement('div');
   card.className = 'item-card';
   
-  // 获取价格：优先从 originalUnitPrice，其次从 price
-  let price = 0;
-  if (item.originalUnitPrice) {
-    price = parseFloat(item.originalUnitPrice);
-  } else if (item.price) {
-    price = parseFloat(item.price);
+  // 获取价格：totalPrice 是总价，不需要乘以数量
+  // 如果有多个 lineItems，按比例分配总价；如果只有一个，直接使用总价
+  let itemPrice = 0;
+  if (orderTotalPrice) {
+    itemPrice = parseFloat(orderTotalPrice);
+  } else {
+    // 回退：如果没有 totalPrice，尝试从 originalUnitPrice 获取（它已经是总价）
+    if (item.originalUnitPrice) {
+      itemPrice = parseFloat(item.originalUnitPrice);
+    } else if (item.price) {
+      itemPrice = parseFloat(item.price);
+    }
   }
   
   const quantity = item.quantity || 1;
-  const itemTotal = price * quantity;
   
   console.log('项目价格:', { 
+    orderTotalPrice,
     originalUnitPrice: item.originalUnitPrice, 
     price: item.price, 
-    calculatedPrice: price,
-    quantity,
-    itemTotal
+    itemPrice,
+    quantity
   });
   
   // 获取自定义属性
@@ -922,36 +1023,78 @@ function createItemCard(item) {
     return attr ? attr.value : '';
   };
   
+  // 新参数映射（与后台管理界面保持一致）
+  const paramOrder = [
+    { key: '材料大类', label: '材料类别' },
+    { key: '材料', label: '材料类型' },
+    { key: '表面处理', label: '表面处理' },
+    { key: '最严公差', label: '最严公差' },
+    { key: '表面粗糙度', label: '表面粗糙度' },
+    { key: '是否有螺纹', label: '是否有螺纹' },
+    { key: '是否有装配关系', label: '是否有装配关系' }
+  ];
+
+  const paramDetails = [];
+
+  // 优先使用新字段
+  paramOrder.forEach(config => {
+    let value = getAttribute(config.key);
+    if (value && value !== '未指定' && value !== '未提供') {
+      if (config.key === '是否有螺纹' || config.key === '是否有装配关系') {
+        value = (value === 'yes' || value === '是') ? '是' : '否';
+      }
+      paramDetails.push({ label: config.label, value });
+    }
+  });
+
+  // 兼容旧字段（如果新字段不存在）
+  const legacyParams = ['颜色', '精度', '精度等级', '公差标准', '颜色与表面', '是否有装配标记', '缩放比例'];
+  legacyParams.forEach(key => {
+    const mapping = {
+      '颜色': { targetKey: '材料', label: '材料类型' },
+      '精度': { targetKey: '最严公差', label: '最严公差' },
+      '精度等级': { targetKey: '最严公差', label: '最严公差' },
+      '公差标准': { targetKey: '最严公差', label: '最严公差' },
+      '颜色与表面': { targetKey: '表面处理', label: '表面处理' },
+      '是否有装配标记': { targetKey: '是否有装配关系', label: '是否有装配关系' },
+      '缩放比例': { targetKey: null, label: '缩放比例' }
+    };
+
+    const mapInfo = mapping[key];
+    if (!mapInfo) return;
+
+    // 如果对应的新字段已经有值，就不再重复显示旧字段
+    if (mapInfo.targetKey && paramDetails.some(p => p.label === mapInfo.label)) {
+      return;
+    }
+
+    let value = getAttribute(key);
+    if (value && value !== '未指定' && value !== '未提供') {
+      if (key === '是否有装配标记') {
+        value = (value === 'yes' || value === '是') ? '是' : '否';
+      } else if (key === '缩放比例') {
+        value = value.includes('%') ? value : value + '%';
+      }
+      paramDetails.push({ label: mapInfo.label, value });
+    }
+  });
+  
   card.innerHTML = `
     <div class="item-header">
       <div class="item-name">${item.title || '未命名项目'}</div>
-      <div class="item-price">${price > 0 ? `$${itemTotal.toFixed(2)}` : '待报价'}</div>
+      <div class="item-price">${itemPrice > 0 ? `$${itemPrice.toFixed(2)}` : '待报价'}</div>
     </div>
     <div class="item-details">
       <div class="item-detail">
         <span class="detail-label">数量</span>
         <span>${quantity}</span>
       </div>
+      ${paramDetails.map(p => `
       <div class="item-detail">
-        <span class="detail-label">材料</span>
-        <span>${getAttribute('材料') || '未指定'}</span>
+        <span class="detail-label">${p.label}</span>
+        <span>${p.value}</span>
       </div>
-      <div class="item-detail">
-        <span class="detail-label">颜色与表面</span>
-        <span>${getAttribute('颜色与表面') || '自然色'}</span>
-      </div>
-      <div class="item-detail">
-        <span class="detail-label">精度等级</span>
-        <span>${getAttribute('精度等级') || '标准'}</span>
-      </div>
-      <div class="item-detail">
-        <span class="detail-label">公差标准</span>
-        <span>${getAttribute('公差标准') || 'GB/T 1804-2000 m级'}</span>
-      </div>
-      <div class="item-detail">
-        <span class="detail-label">表面粗糙度</span>
-        <span>${getAttribute('表面粗糙度') || 'Ra3.2'}</span>
-      </div>
+      `).join('')}
       ${getAttribute('备注') ? `
       <div class="item-detail" style="grid-column: 1 / -1;">
         <span class="detail-label">备注</span>
@@ -973,12 +1116,12 @@ function updatePrices(order) {
     subtotal = parseFloat(order.totalPrice);
     console.log('从order.totalPrice获取价格:', subtotal);
   } 
-  // 如果没有totalPrice，尝试从lineItems计算
+  // 如果没有totalPrice，尝试从lineItems计算（注意：originalUnitPrice 已经是总价，不需要乘以数量）
   else if (order.lineItems && order.lineItems.length > 0) {
     order.lineItems.forEach(item => {
+      // originalUnitPrice 已经是总价，不需要乘以数量
       const price = parseFloat(item.originalUnitPrice || item.price || 0);
-      const quantity = item.quantity || 1;
-      subtotal += price * quantity;
+      subtotal += price;
     });
     console.log('从lineItems计算价格:', subtotal);
   }
@@ -995,19 +1138,35 @@ function updatePrices(order) {
 function updateButtonState(order) {
   const placeOrderBtn = document.getElementById('place-order-btn');
   
-  // 检查是否已报价
-  let isQuoted = false;
-  
   // 优先检查自定义属性中的状态
+  let orderStatus = null;
   if (order.lineItems && order.lineItems.length > 0) {
     const firstItem = order.lineItems[0];
     const attrs = firstItem.customAttributes || [];
     const statusAttr = attrs.find(a => a.key === '状态');
     
-    if (statusAttr && statusAttr.value === '已报价') {
-      isQuoted = true;
-      console.log('✅ 从自定义属性确认已报价');
+    if (statusAttr) {
+      orderStatus = statusAttr.value;
+      console.log('从自定义属性获取状态:', orderStatus);
     }
+  }
+  
+  // 检查是否为"无法加工"状态
+  if (orderStatus === '无法加工') {
+    placeOrderBtn.disabled = true;
+    placeOrderBtn.textContent = '无法加工';
+    placeOrderBtn.style.opacity = '0.6';
+    placeOrderBtn.style.cursor = 'not-allowed';
+    console.log('❌ 按钮状态: 无法加工（禁用）');
+    return;
+  }
+  
+  // 检查是否已报价
+  let isQuoted = false;
+  
+  if (orderStatus === '已报价') {
+    isQuoted = true;
+    console.log('✅ 从自定义属性确认已报价');
   }
   
   // 回退到检查totalPrice
@@ -1050,6 +1209,11 @@ function getOrderStatus(order) {
         return {
           text: '已报价',
           className: 'status-quoted'
+        };
+      } else if (status === '无法加工') {
+        return {
+          text: '无法加工',
+          className: 'status-rejected'
         };
       }
     }
@@ -1311,13 +1475,20 @@ function renderOrdersList(orders) {
     }
   }
   
+  // 按创建时间倒序排序（最新的在最上面）
+  const sortedOrders = [...orders].sort((a, b) => {
+    const aTime = new Date(a.createdAt).getTime() || 0;
+    const bTime = new Date(b.createdAt).getTime() || 0;
+    return bTime - aTime;
+  });
+
   ordersListContainer.innerHTML = `
     <div class="orders-list-header">
       <h2>我的询价订单</h2>
       <p>点击订单查看详情</p>
     </div>
     <div class="orders-list">
-      ${orders.map(order => createOrderCard(order)).join('')}
+      ${sortedOrders.map(order => createOrderCard(order)).join('')}
     </div>
   `;
   
@@ -1328,11 +1499,13 @@ function renderOrdersList(orders) {
 function createOrderCard(order) {
   const status = getOrderStatus(order);
   const date = formatDate(order.createdAt);
+  const customerLabelForNumber = order.email || '客户';
+  const displayNumber = `${customerLabelForNumber} - ${date}`;
   
   return `
     <div class="order-card" onclick="viewOrder('${order.id}')">
       <div class="order-card-header">
-        <div class="order-number">${order.name}</div>
+        <div class="order-number">${displayNumber}</div>
         <div class="order-status ${status.className}">${status.text}</div>
       </div>
       <div class="order-card-body">
