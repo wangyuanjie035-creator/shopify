@@ -1466,37 +1466,64 @@
 
     try {
       console.log('🔍 STEP 加工特征分析:', fileName);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
+
       const resp = await fetch(`${apiBase}/analyze-step-features`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileUrl, fileName }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const json = await resp.json();
       if (!resp.ok || !json.success) {
-        console.warn('⚠️ 特征分析未成功:', json.message || resp.status);
-        return { status: 'failed', error: json.message || `HTTP ${resp.status}` };
+        const msg = json.message || `HTTP ${resp.status}`;
+        console.warn('⚠️ 特征分析未成功:', msg);
+        return {
+          status: 'failed',
+          error: msg,
+          hint: resp.status === 504 || /timeout|timed out/i.test(msg)
+            ? '分析超时：请确认 Palmetto 与 ngrok 在运行，或模型面数过多'
+            : (resp.status === 503 ? 'Palmetto 服务不可达，请检查 ngrok 与 PALMETTO_SERVICE_URL' : ''),
+        };
       }
 
-      console.log('✅ 特征分析完成:', json.features?.summary);
+      console.log('✅ 特征分析完成:', json.features?.summary, json.features?.insights);
       return json;
     } catch (error) {
+      const isAbort = error.name === 'AbortError';
       console.warn('⚠️ 特征分析请求失败:', error.message);
-      return { status: 'failed', error: error.message };
+      return {
+        status: 'failed',
+        error: isAbort ? '分析请求超时（90秒）' : error.message,
+        hint: isAbort
+          ? '大模型可能超过 Vercel 60 秒限制，请保持 Palmetto 本地运行或升级部署'
+          : '',
+      };
     }
   }
 
   function buildMachiningFeatureAttributes(analysisResult) {
     const features = analysisResult?.features;
     if (!features) {
-      return [
-        { key: '加工特征状态', value: analysisResult?.status || 'skipped' },
-        ...(analysisResult?.error ? [{ key: '加工特征错误', value: String(analysisResult.error).slice(0, 250) }] : []),
+      const attrs = [
+        { key: '加工特征状态', value: '解析失败' },
       ];
+      if (analysisResult?.error) {
+        attrs.push({ key: '加工特征错误', value: String(analysisResult.error).slice(0, 250) });
+      }
+      if (analysisResult?.hint) {
+        attrs.push({ key: '解析提示', value: String(analysisResult.hint).slice(0, 250) });
+      }
+      return attrs;
     }
 
+    const statusText = features.statusLabel || features.status || 'unknown';
     const attrs = [
-      { key: '加工特征状态', value: features.status || 'unknown' },
+      { key: '加工特征状态', value: statusText },
       { key: '孔数量', value: String(features.summary?.holeCount ?? 0) },
       { key: '型腔数量', value: String(features.summary?.cavityCount ?? 0) },
       { key: '圆角数量', value: String(features.summary?.filletCount ?? 0) },
@@ -1509,6 +1536,13 @@
     }
     if (analysisResult.shopifySummary) {
       attrs.push({ key: '加工特征摘要', value: analysisResult.shopifySummary });
+    }
+
+    const detailAttrs = analysisResult.shopifyDetailAttributes || [];
+    for (const item of detailAttrs) {
+      if (item?.key && item?.value != null) {
+        attrs.push({ key: item.key, value: String(item.value) });
+      }
     }
 
     return attrs;
