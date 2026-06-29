@@ -12,6 +12,11 @@ const CAVITY_TYPES = new Set([
   'pocket',
 ]);
 
+const DEEP_CAVITY_MM = 10;
+const NARROW_OPENING_MM = 5;
+const SMALL_HOLE_MM = 3;
+const LARGE_HOLE_MM = 10;
+
 function roundNumber(value, digits = 3) {
   if (typeof value !== 'number' || Number.isNaN(value)) return null;
   const factor = 10 ** digits;
@@ -36,6 +41,7 @@ function normalizeHole(feature) {
     center: normalizeVector(props.center),
     countersinkDiameter: roundNumber(props.countersink_diameter),
     countersinkAngle: roundNumber(props.countersink_angle),
+    boreCount: roundNumber(props.bore_count, 0),
     faceIds: feature.face_ids || [],
   };
 }
@@ -68,13 +74,25 @@ function normalizeFillet(feature) {
 
 function normalizeCavity(feature) {
   const props = feature.properties || {};
+  const floorArea = roundNumber(props.floor_area);
+  const volume = roundNumber(props.volume);
+  let estimatedDepth = roundNumber(props.depth);
+  if (estimatedDepth == null && floorArea && volume && floorArea > 0) {
+    estimatedDepth = roundNumber(volume / floorArea);
+  }
+  const openingSize = floorArea && floorArea > 0 ? roundNumber(Math.sqrt(floorArea)) : null;
+
   return {
     id: feature.feature_id,
     type: feature.feature_type,
     confidence: roundNumber(feature.confidence, 4),
-    volume: roundNumber(props.volume),
-    depth: roundNumber(props.depth),
-    floorArea: roundNumber(props.floor_area),
+    volume,
+    depth: estimatedDepth,
+    floorArea,
+    openingSize,
+    faceCount: roundNumber(props.face_count, 0),
+    isDeep: estimatedDepth != null && estimatedDepth >= DEEP_CAVITY_MM,
+    isNarrow: openingSize != null && openingSize < NARROW_OPENING_MM,
     isThrough: Boolean(props.is_through),
     faceIds: feature.face_ids || [],
   };
@@ -116,6 +134,106 @@ function collectFeatures(analysisResults) {
   return buckets;
 }
 
+function buildNumericStats(values) {
+  const nums = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
+  if (!nums.length) return null;
+
+  nums.sort((a, b) => a - b);
+  const sum = nums.reduce((acc, n) => acc + n, 0);
+
+  return {
+    min: roundNumber(nums[0]),
+    max: roundNumber(nums[nums.length - 1]),
+    avg: roundNumber(sum / nums.length),
+    count: nums.length,
+  };
+}
+
+function formatRange(stats, unit = 'mm') {
+  if (!stats) return null;
+  if (stats.min === stats.max) return `${stats.min} ${unit}`;
+  return `${stats.min}–${stats.max} ${unit}`;
+}
+
+function buildFilletDistribution(fillets) {
+  const groups = new Map();
+  for (const fillet of fillets) {
+    if (fillet.radius == null) continue;
+    const key = String(roundNumber(fillet.radius, 2));
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+
+  const sorted = [...groups.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  if (!sorted.length) return null;
+
+  return sorted.map(([radius, count]) => `R${radius}×${count}`).join(', ');
+}
+
+function buildHoleSizeBreakdown(holes) {
+  let small = 0;
+  let medium = 0;
+  let large = 0;
+
+  for (const hole of holes) {
+    const d = hole.diameter;
+    if (d == null) continue;
+    if (d < SMALL_HOLE_MM) small += 1;
+    else if (d <= LARGE_HOLE_MM) medium += 1;
+    else large += 1;
+  }
+
+  const parts = [];
+  if (small) parts.push(`小孔(<${SMALL_HOLE_MM}mm)×${small}`);
+  if (medium) parts.push(`标准孔×${medium}`);
+  if (large) parts.push(`大孔(>${LARGE_HOLE_MM}mm)×${large}`);
+
+  return parts.length ? parts.join(', ') : null;
+}
+
+export function buildFeatureInsights(buckets, topology) {
+  const holeDiameters = buckets.holes.map((h) => h.diameter).filter((v) => v != null);
+  const filletRadii = buckets.fillets.map((f) => f.radius).filter((v) => v != null);
+  const cavityDepths = buckets.cavities.map((c) => c.depth).filter((v) => v != null);
+  const cavityOpenings = buckets.cavities.map((c) => c.openingSize).filter((v) => v != null);
+
+  const deepCavities = buckets.cavities.filter((c) => c.isDeep);
+  const narrowCavities = buckets.cavities.filter((c) => c.isNarrow);
+  const counterboredHoles = buckets.holes.filter((h) => h.type === 'hole_counterbored').length;
+
+  return {
+    topology: {
+      faceCount: topology?.faces ?? null,
+      edgeCount: topology?.edges ?? null,
+      triangleCount: topology?.triangles ?? null,
+      solidCount: topology?.solids ?? null,
+    },
+    holes: {
+      diameter: buildNumericStats(holeDiameters),
+      sizeBreakdown: buildHoleSizeBreakdown(buckets.holes),
+      counterboredCount: counterboredHoles,
+      depthAvailable: buckets.holes.some((h) => h.depth != null),
+    },
+    fillets: {
+      radius: buildNumericStats(filletRadii),
+      uniqueRadiusCount: new Set(filletRadii.map((r) => roundNumber(r, 2))).size,
+      distribution: buildFilletDistribution(buckets.fillets),
+    },
+    cavities: {
+      count: buckets.cavities.length,
+      deepCount: deepCavities.length,
+      narrowCount: narrowCavities.length,
+      depth: buildNumericStats(cavityDepths),
+      openingSize: buildNumericStats(cavityOpenings),
+      totalVolume: roundNumber(
+        buckets.cavities.reduce((sum, c) => sum + (c.volume || 0), 0)
+      ),
+    },
+  };
+}
+
 function buildReviewReasons({ upload, buckets, recognizerErrors }) {
   const reasons = [];
   const solids = upload?.topology_stats?.solids ?? 0;
@@ -144,6 +262,63 @@ function buildReviewReasons({ upload, buckets, recognizerErrors }) {
   return reasons;
 }
 
+function statusLabel(status) {
+  if (status === 'ok') return '完成';
+  if (status === 'partial') return '部分完成';
+  if (status === 'failed') return '解析失败';
+  return status || '未知';
+}
+
+export function buildShopifyDetailAttributes(features) {
+  if (!features) return [];
+
+  const attrs = [];
+  const { insights, summary } = features;
+  if (!insights) return attrs;
+
+  const push = (key, value) => {
+    if (value == null || value === '') return;
+    const text = String(value);
+    attrs.push({ key, value: text.length > 250 ? `${text.slice(0, 247)}...` : text });
+  };
+
+  const topo = insights.topology;
+  if (topo.faceCount != null) push('模型面数', String(topo.faceCount));
+  if (topo.edgeCount != null) push('模型边数', String(topo.edgeCount));
+  if (topo.triangleCount != null) push('网格三角面数', String(topo.triangleCount));
+
+  push('孔径范围', formatRange(insights.holes.diameter));
+  push('孔尺寸分布', insights.holes.sizeBreakdown);
+  if (insights.holes.counterboredCount) {
+    push('沉头/台阶孔数', String(insights.holes.counterboredCount));
+  }
+  if (!insights.holes.depthAvailable) {
+    push('孔深度', '引擎暂未输出，后续版本支持');
+  }
+
+  push('圆角半径范围', formatRange(insights.fillets.radius));
+  push('圆角规格分布', insights.fillets.distribution);
+  if (insights.fillets.uniqueRadiusCount) {
+    push('圆角规格种数', String(insights.fillets.uniqueRadiusCount));
+  }
+
+  if (summary.cavityCount > 0) {
+    push('型腔深度估算', formatRange(insights.cavities.depth));
+    push('型腔开口尺寸', formatRange(insights.cavities.openingSize));
+    if (insights.cavities.deepCount) {
+      push('深型腔数量', String(insights.cavities.deepCount));
+    }
+    if (insights.cavities.narrowCount) {
+      push('窄型腔数量', String(insights.cavities.narrowCount));
+    }
+    if (insights.cavities.totalVolume != null) {
+      push('型腔总体积', `${insights.cavities.totalVolume} mm³`);
+    }
+  }
+
+  return attrs;
+}
+
 export function normalizeMachiningFeatures({
   fileName,
   upload,
@@ -166,15 +341,19 @@ export function normalizeMachiningFeatures({
     status = 'partial';
   }
 
+  const topology = upload?.topology_stats || null;
+  const insights = buildFeatureInsights(buckets, topology);
+
   return {
-    schemaVersion: '1.0',
+    schemaVersion: '1.1',
     status,
+    statusLabel: statusLabel(status),
     fileName,
     fileSizeBytes: fileSizeBytes ?? upload?.file_size_bytes ?? null,
     modelId: upload?.model_id || analysis.modelId || null,
     analyzedAt: new Date().toISOString(),
     executionMs: analysis.executionMs ?? null,
-    topology: upload?.topology_stats || null,
+    topology,
     summary: {
       holeCount: buckets.holes.length,
       shaftCount: buckets.shafts.length,
@@ -182,6 +361,7 @@ export function normalizeMachiningFeatures({
       cavityCount: buckets.cavities.length,
       otherFeatureCount: buckets.other.length,
     },
+    insights,
     features: buckets,
     recognizerErrors,
     requiresManualReview: reviewReasons.length > 0,
@@ -191,14 +371,29 @@ export function normalizeMachiningFeatures({
 
 export function serializeMachiningFeaturesForShopify(features) {
   const compact = {
+    schemaVersion: features.schemaVersion,
     status: features.status,
     summary: features.summary,
+    insights: {
+      topology: features.insights?.topology,
+      holes: {
+        diameter: features.insights?.holes?.diameter,
+        sizeBreakdown: features.insights?.holes?.sizeBreakdown,
+      },
+      fillets: {
+        radius: features.insights?.fillets?.radius,
+        distribution: features.insights?.fillets?.distribution,
+      },
+      cavities: {
+        deepCount: features.insights?.cavities?.deepCount,
+        narrowCount: features.insights?.cavities?.narrowCount,
+        depth: features.insights?.cavities?.depth,
+      },
+    },
     requiresManualReview: features.requiresManualReview,
     reviewReasons: features.reviewReasons,
-    holeCount: features.summary.holeCount,
-    cavityCount: features.summary.cavityCount,
-    filletCount: features.summary.filletCount,
   };
 
-  return JSON.stringify(compact);
+  const json = JSON.stringify(compact);
+  return json.length > 250 ? `${json.slice(0, 247)}...` : json;
 }

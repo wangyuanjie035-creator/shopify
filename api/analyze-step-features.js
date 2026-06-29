@@ -3,6 +3,7 @@ import { analyzeStepInput, checkPalmettoHealth, DEFAULT_MODULES } from '../utils
 import {
   normalizeMachiningFeatures,
   serializeMachiningFeaturesForShopify,
+  buildShopifyDetailAttributes,
 } from '../utils/machining-features.js';
 
 /**
@@ -117,6 +118,7 @@ export default async function handler(req, res) {
       shopifySummary: includeShopifySummary
         ? serializeMachiningFeaturesForShopify(features)
         : undefined,
+      shopifyDetailAttributes: buildShopifyDetailAttributes(features),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

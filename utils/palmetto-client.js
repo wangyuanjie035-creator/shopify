@@ -73,12 +73,21 @@ function mapPalmettoFeature(raw) {
 
   const properties = {};
   if (params.diameter_mm != null) properties.diameter = params.diameter_mm;
-  if (params.max_diameter_mm != null) properties.diameter = params.max_diameter_mm;
+  if (params.max_diameter_mm != null && properties.diameter == null) {
+    properties.diameter = params.max_diameter_mm;
+  }
+  if (params.min_diameter_mm != null) properties.min_diameter = params.min_diameter_mm;
+  if (params.max_diameter_mm != null) properties.max_diameter = params.max_diameter_mm;
   if (params.radius_mm != null) properties.radius = params.radius_mm;
+  if (params.major_radius_mm != null) properties.major_radius = params.major_radius_mm;
+  if (params.depth_mm != null) properties.depth = params.depth_mm;
   if (params.estimated_volume_mm3 != null) properties.volume = params.estimated_volume_mm3;
   if (params.total_area_mm2 != null) properties.floor_area = params.total_area_mm2;
+  if (params.face_count != null) properties.face_count = params.face_count;
   if (params.width_mm != null) properties.width = params.width_mm;
   if (params.length != null) properties.length = params.length;
+  if (params.bore_count != null) properties.bore_count = params.bore_count;
+  if (params.is_through != null) properties.is_through = params.is_through;
 
   if (params.axis_x != null) {
     properties.axis = [params.axis_x, params.axis_y, params.axis_z];
@@ -265,10 +274,21 @@ export async function analyzeStepInput({
 
   try {
     const analysis = await analyzeAllFeatures(modelId, selectedModules);
+    const metaCounts = analysis.metadata?.counts;
+    const topologyStats = metaCounts
+      ? {
+          faces: metaCounts.faces ?? null,
+          edges: metaCounts.edges ?? null,
+          triangles: metaCounts.triangles ?? null,
+          features: metaCounts.features ?? null,
+          solids: upload?.topology_stats?.solids ?? 1,
+        }
+      : (upload?.topology_stats || analysis.metadata?.topology || null);
+
     return {
       upload: {
         ...upload,
-        topology_stats: analysis.metadata?.topology || null,
+        topology_stats: topologyStats,
       },
       analysis,
       fileSizeBytes: fileBuffer.length,
