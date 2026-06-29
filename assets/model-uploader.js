@@ -1454,6 +1454,66 @@
     return threeDExtensions.some(ext => fileName.toLowerCase().endsWith(ext));
   }
 
+  function isStepFile(fileName) {
+    const lower = (fileName || '').toLowerCase();
+    return lower.endsWith('.stp') || lower.endsWith('.step');
+  }
+
+  async function analyzeStepMachiningFeatures(apiBase, fileUrl, fileName) {
+    if (!fileUrl || !isStepFile(fileName)) {
+      return null;
+    }
+
+    try {
+      console.log('🔍 STEP 加工特征分析:', fileName);
+      const resp = await fetch(`${apiBase}/analyze-step-features`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileUrl, fileName }),
+      });
+
+      const json = await resp.json();
+      if (!resp.ok || !json.success) {
+        console.warn('⚠️ 特征分析未成功:', json.message || resp.status);
+        return { status: 'failed', error: json.message || `HTTP ${resp.status}` };
+      }
+
+      console.log('✅ 特征分析完成:', json.features?.summary);
+      return json;
+    } catch (error) {
+      console.warn('⚠️ 特征分析请求失败:', error.message);
+      return { status: 'failed', error: error.message };
+    }
+  }
+
+  function buildMachiningFeatureAttributes(analysisResult) {
+    const features = analysisResult?.features;
+    if (!features) {
+      return [
+        { key: '加工特征状态', value: analysisResult?.status || 'skipped' },
+        ...(analysisResult?.error ? [{ key: '加工特征错误', value: String(analysisResult.error).slice(0, 250) }] : []),
+      ];
+    }
+
+    const attrs = [
+      { key: '加工特征状态', value: features.status || 'unknown' },
+      { key: '孔数量', value: String(features.summary?.holeCount ?? 0) },
+      { key: '型腔数量', value: String(features.summary?.cavityCount ?? 0) },
+      { key: '圆角数量', value: String(features.summary?.filletCount ?? 0) },
+      { key: '轴凸台数量', value: String(features.summary?.shaftCount ?? 0) },
+      { key: '需人工复核', value: features.requiresManualReview ? '是' : '否' },
+    ];
+
+    if (Array.isArray(features.reviewReasons) && features.reviewReasons.length > 0) {
+      attrs.push({ key: '复核原因', value: features.reviewReasons.join(', ') });
+    }
+    if (analysisResult.shopifySummary) {
+      attrs.push({ key: '加工特征摘要', value: analysisResult.shopifySummary });
+    }
+
+    return attrs;
+  }
+
   // 检查3D文件是否有对应的2D文件
   function hasCorresponding2DFile(threeDFileId) {
     const threeDFileData = fileManager.files.get(threeDFileId);
@@ -1758,6 +1818,26 @@
         throw e;
       }
 
+      // 4.1b STEP 加工特征分析（经 Vercel -> ngrok/云 Palmetto，使用 CDN URL 避免 413）
+      let featureAnalysis = null;
+      if (isStepFile(fileData.file.name) && threeDMeta.shopifyFileUrl) {
+        featureAnalysis = await analyzeStepMachiningFeatures(
+          API_BASE,
+          threeDMeta.shopifyFileUrl,
+          fileData.file.name
+        );
+      }
+
+      const machiningAttrs = buildMachiningFeatureAttributes(featureAnalysis);
+      let quoteStatus = 'Pending';
+      if (featureAnalysis?.features?.requiresManualReview) {
+        quoteStatus = 'Pending Review';
+      } else if (featureAnalysis?.features?.status === 'ok' || featureAnalysis?.features?.status === 'partial') {
+        quoteStatus = 'Features Analyzed';
+      } else if (featureAnalysis?.status === 'failed') {
+        quoteStatus = 'Feature Analysis Failed';
+      }
+
       // 4.2 为该 3D 文件及其对应 2D 文件生成 lineItems
       const lineItems = [];
 
@@ -1781,11 +1861,12 @@
           { key: '是否有螺纹', value: config.hasThread || 'no' },
           { key: '是否有装配关系', value: config.hasAssembly || 'no' },
           { key: '备注', value: config.note || '' },
-          { key: 'Quote Status', value: 'Pending' },
+          { key: 'Quote Status', value: quoteStatus },
           { key: '文件ID', value: threeDMeta.fileId },
           { key: 'Shopify文件ID', value: threeDMeta.shopifyFileId },
           { key: 'Shopify文件URL', value: threeDMeta.shopifyFileUrl },
           { key: '原始文件大小', value: String(threeDMeta.originalFileSize || fileData.file.size) },
+          ...machiningAttrs,
           { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
         ],
       });

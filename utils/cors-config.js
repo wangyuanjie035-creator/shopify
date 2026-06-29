@@ -6,6 +6,8 @@ export function setCorsHeaders(req, res) {
   // 允许的来源（Shopify 店铺 + 本地调试）
   const allowedOrigins = new Set([
     'https://sain-pdc-test.myshopify.com',
+    'https://www.sainsmart.com',
+    'https://sainsmart.com',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'null',
