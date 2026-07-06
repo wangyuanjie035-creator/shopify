@@ -1080,9 +1080,9 @@ function createItemCard(item, orderTotalPrice) {
   });
 
   const machiningParamOrder = [
-    '加工特征状态', '模型面数', '孔径范围', '孔尺寸分布', '孔深度',
-    '圆角半径范围', '圆角规格分布', '型腔深度估算', '型腔开口尺寸',
-    '深型腔数量', '窄型腔数量', '型腔总体积', '需人工复核'
+    '加工特征状态', '模型面数', '孔径范围', '孔尺寸分布', '孔深度范围', '孔深度方法',
+    '通孔数量', '圆角半径范围', '圆角规格分布', '型腔深度', '型腔深度方法',
+    '型腔开口尺寸', '深型腔数量', '窄型腔数量', '型腔总体积', '需人工复核'
   ];
   machiningParamOrder.forEach(key => {
     const value = getAttribute(key);

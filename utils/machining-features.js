@@ -30,13 +30,15 @@ function normalizeVector(vector) {
 
 function normalizeHole(feature) {
   const props = feature.properties || {};
+  const depth = roundNumber(props.depth);
   return {
     id: feature.feature_id,
     type: feature.feature_type,
     confidence: roundNumber(feature.confidence, 4),
     diameter: roundNumber(props.diameter),
-    depth: roundNumber(props.depth),
-    isThrough: Boolean(props.is_through),
+    depth,
+    depthSource: depth != null ? 'hole_recognizer_axial' : null,
+    isThrough: props.is_through === 1 || props.is_through === true,
     axis: normalizeVector(props.axis),
     center: normalizeVector(props.center),
     countersinkDiameter: roundNumber(props.countersink_diameter),
@@ -76,24 +78,37 @@ function normalizeCavity(feature) {
   const props = feature.properties || {};
   const floorArea = roundNumber(props.floor_area);
   const volume = roundNumber(props.volume);
-  let estimatedDepth = roundNumber(props.depth);
-  if (estimatedDepth == null && floorArea && volume && floorArea > 0) {
-    estimatedDepth = roundNumber(volume / floorArea);
+  const engineDepth = roundNumber(props.depth);
+  let depth = engineDepth;
+  let depthSource = engineDepth != null ? 'pocket_depth_analyzer' : null;
+
+  if (depth == null && floorArea && volume && floorArea > 0) {
+    depth = roundNumber(volume / floorArea);
+    depthSource = 'volume_ratio_estimate';
   }
-  const openingSize = floorArea && floorArea > 0 ? roundNumber(Math.sqrt(floorArea)) : null;
+
+  const openingSize = roundNumber(props.opening_diameter)
+    ?? (floorArea && floorArea > 0 ? roundNumber(Math.sqrt(floorArea)) : null);
+
+  const engineDeep = props.is_deep === 1 || props.is_deep === true;
+  const engineNarrow = props.is_narrow === 1 || props.is_narrow === true;
 
   return {
     id: feature.feature_id,
     type: feature.feature_type,
     confidence: roundNumber(feature.confidence, 4),
     volume,
-    depth: estimatedDepth,
+    depth,
+    depthSource,
     floorArea,
     openingSize,
+    openingSizeSource: props.opening_diameter != null ? 'pocket_depth_analyzer' : 'area_sqrt_estimate',
+    aspectRatio: roundNumber(props.aspect_ratio),
     faceCount: roundNumber(props.face_count, 0),
-    isDeep: estimatedDepth != null && estimatedDepth >= DEEP_CAVITY_MM,
-    isNarrow: openingSize != null && openingSize < NARROW_OPENING_MM,
-    isThrough: Boolean(props.is_through),
+    isDeep: engineDeep || (depthSource === 'volume_ratio_estimate' && depth != null && depth >= DEEP_CAVITY_MM),
+    isNarrow: engineNarrow || (openingSize != null && openingSize < NARROW_OPENING_MM),
+    isThrough: props.is_through === 1 || props.is_through === true,
+    accessibilityScore: roundNumber(props.accessibility_score, 3),
     faceIds: feature.face_ids || [],
   };
 }
@@ -202,6 +217,9 @@ export function buildFeatureInsights(buckets, topology) {
   const deepCavities = buckets.cavities.filter((c) => c.isDeep);
   const narrowCavities = buckets.cavities.filter((c) => c.isNarrow);
   const counterboredHoles = buckets.holes.filter((h) => h.type === 'hole_counterbored').length;
+  const holeDepths = buckets.holes.map((h) => h.depth).filter((v) => v != null);
+  const throughHoles = buckets.holes.filter((h) => h.isThrough).length;
+  const engineCavityDepths = buckets.cavities.filter((c) => c.depthSource === 'pocket_depth_analyzer');
 
   return {
     topology: {
@@ -212,9 +230,12 @@ export function buildFeatureInsights(buckets, topology) {
     },
     holes: {
       diameter: buildNumericStats(holeDiameters),
+      depth: buildNumericStats(holeDepths),
       sizeBreakdown: buildHoleSizeBreakdown(buckets.holes),
       counterboredCount: counterboredHoles,
-      depthAvailable: buckets.holes.some((h) => h.depth != null),
+      throughCount: throughHoles,
+      depthAvailable: holeDepths.length > 0,
+      depthSource: holeDepths.length > 0 ? 'hole_recognizer_axial' : null,
     },
     fillets: {
       radius: buildNumericStats(filletRadii),
@@ -230,6 +251,7 @@ export function buildFeatureInsights(buckets, topology) {
       totalVolume: roundNumber(
         buckets.cavities.reduce((sum, c) => sum + (c.volume || 0), 0)
       ),
+      depthSource: engineCavityDepths.length > 0 ? 'pocket_depth_analyzer' : 'volume_ratio_estimate',
     },
   };
 }
@@ -292,8 +314,12 @@ export function buildShopifyDetailAttributes(features) {
   if (insights.holes.counterboredCount) {
     push('沉头/台阶孔数', String(insights.holes.counterboredCount));
   }
-  if (!insights.holes.depthAvailable) {
-    push('孔深度', '引擎暂未输出，后续版本支持');
+  if (insights.holes.depthAvailable) {
+    push('孔深度范围', formatRange(insights.holes.depth));
+    push('孔深度方法', 'Palmetto轴向投影');
+  }
+  if (insights.holes.throughCount) {
+    push('通孔数量', String(insights.holes.throughCount));
   }
 
   push('圆角半径范围', formatRange(insights.fillets.radius));
@@ -303,7 +329,10 @@ export function buildShopifyDetailAttributes(features) {
   }
 
   if (summary.cavityCount > 0) {
-    push('型腔深度估算', formatRange(insights.cavities.depth));
+    push('型腔深度', formatRange(insights.cavities.depth));
+    push('型腔深度方法', insights.cavities.depthSource === 'pocket_depth_analyzer'
+      ? 'PocketDepthAnalyzer开口平面距离'
+      : '体积/面积估算');
     push('型腔开口尺寸', formatRange(insights.cavities.openingSize));
     if (insights.cavities.deepCount) {
       push('深型腔数量', String(insights.cavities.deepCount));
@@ -345,7 +374,7 @@ export function normalizeMachiningFeatures({
   const insights = buildFeatureInsights(buckets, topology);
 
   return {
-    schemaVersion: '1.1',
+    schemaVersion: '1.2',
     status,
     statusLabel: statusLabel(status),
     fileName,

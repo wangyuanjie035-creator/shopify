@@ -88,6 +88,11 @@ function mapPalmettoFeature(raw) {
   if (params.length != null) properties.length = params.length;
   if (params.bore_count != null) properties.bore_count = params.bore_count;
   if (params.is_through != null) properties.is_through = params.is_through;
+  if (params.opening_diameter_mm != null) properties.opening_diameter = params.opening_diameter_mm;
+  if (params.aspect_ratio != null) properties.aspect_ratio = params.aspect_ratio;
+  if (params.is_deep != null) properties.is_deep = params.is_deep;
+  if (params.is_narrow != null) properties.is_narrow = params.is_narrow;
+  if (params.accessibility_score != null) properties.accessibility_score = params.accessibility_score;
 
   if (params.axis_x != null) {
     properties.axis = [params.axis_x, params.axis_y, params.axis_z];
@@ -166,6 +171,7 @@ export async function processModel(modelId, options = {}) {
       modules,
       analyze_thickness: false,
       enable_dfm_geometry: false,
+      enable_pocket_depth: true,
       enable_sdf: false,
       enable_thickness_heatmap: false,
     }),
