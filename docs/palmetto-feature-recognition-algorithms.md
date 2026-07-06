@@ -410,7 +410,38 @@ Palmetto 在工业界处于什么位置？有没有比 AAG 更好的方法？有
 
 ---
 
-## 11. 源码索引（快速定位）
+## 11. Draft Order 字段 · 算法依据与局限（schema v1.2）
+
+Shopify 订单属性必须能追溯到 Palmetto 引擎输出。下表说明 **第二阶段** 各字段来源；未列入的「体积/面积估算」仅在前述引擎字段缺失时作为 fallback。
+
+| Draft Order 字段 | 引擎来源 | 算法 | 置信度 | 局限 |
+|---|---|---|---|---|
+| 孔数量 | `hole_recognizer` | AAG 内圆柱 + 凹圆边 + 同轴合并 | ~0.95 | 异形孔、锥孔可能漏/误判 |
+| 孔径范围 | 同上 | OCCT 圆柱面 `diameter_mm` | 高 | 精确 B-Rep 参数 |
+| **孔深度范围** | `hole_recognizer` | 同轴面 bbox 角点沿孔轴投影跨度 | ~0.95 | 台阶孔取整段轴向 extent，非各段分别深度 |
+| **通孔数量** | `hole_recognizer` | ≥2 个同轴 **360° 圆边** 且轴向位置分离 | ~0.90 | 单圆柱双圆边通孔可识别；盲孔仅 1 个圆边 |
+| 型腔数量 | `cavity_recognizer` | AAG 凹面 BFS 连通分量 | ~0.70 | 大开口/相邻腔可能合并 |
+| **型腔深度** | `PocketDepthAnalyzer` | 开口平面到腔体内部面质心 **最大距离** | ~0.85 | 需 `--analyze-pocket-depth`；非 NC 仿真深度 |
+| **型腔开口尺寸** | `PocketDepthAnalyzer` | 开口面 bbox 两较大边长平均 | ~0.85 | 非最小通道宽度 |
+| 深/窄型腔数量 | `PocketDepthAnalyzer` | AR≥2 为深；开口直径<5mm 为窄 | 中 | 阈值为可配置 DFM 启发式 |
+| 型腔深度方法 | Shopify 元数据 | 标注 `PocketDepthAnalyzer` 或 `体积/面积估算` | — | 便于人工判断可否用于报价 |
+| 圆角半径范围 | `fillet_recognizer` | 圆柱/圆环面 + 90° 圆弧边 | ~0.95 | 复杂件可能计数偏多 |
+| 模型面数 | `meta.json` | OCCT 拓扑面计数 | 精确 | — |
+
+**API 开关：** `POST /api/analyze/process` 请求体 `"enable_pocket_depth": true`（不触发完整 DFM 套件）。
+
+**Palmetto 重建：**
+
+```powershell
+cd E:\Palmetto
+docker build -t palmetto .
+docker stop palmetto-dev; docker rm palmetto-dev
+docker run -d --name palmetto-dev -p 8888:8000 palmetto
+```
+
+---
+
+## 12. 源码索引（快速定位）
 
 | 组件 | 文件 |
 |---|---|
@@ -422,6 +453,7 @@ Palmetto 在工业界处于什么位置？有没有比 AAG 更好的方法？有
 | 圆角 | `fillet_recognizer.cpp` |
 | 倒角 | `chamfer_recognizer.cpp` |
 | 型腔 | `cavity_recognizer.cpp` |
+| 口袋深度 | `pocket_depth_analyzer.cpp` |
 | JSON 导出 | `json_exporter.cpp` |
 | FastAPI 路由 | `E:\Palmetto\backend\app\api\routes\analyze.py` |
 | Shopify 客户端 | 本仓库 `utils/palmetto-client.js` |
@@ -429,9 +461,10 @@ Palmetto 在工业界处于什么位置？有没有比 AAG 更好的方法？有
 
 ---
 
-## 12. 修订记录
+## 13. 修订记录
 
 | 日期 | 说明 |
 |---|---|
 | 2026-06-24 | 初版：基于 Palmetto 实际 C++ 实现与 SKS CHASSI B V2.stp 验证结果编写 |
 | 2026-06-24 | 增加指向 [feature-recognition-landscape.md](./feature-recognition-landscape.md) 的交叉引用 |
+| 2026-07-06 | 第二阶段：孔深/通孔（hole_recognizer）、型腔深度（PocketDepthAnalyzer）、字段依据表 schema v1.2 |
