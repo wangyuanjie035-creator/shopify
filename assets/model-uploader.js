@@ -1773,6 +1773,125 @@
     }
   }
 
+  // Vercel 请求体硬上限 4.5MB；Base64 膨胀约 33%，超过 ~2MB 原文件走直传
+  const DIRECT_UPLOAD_THRESHOLD_BYTES = 2 * 1024 * 1024;
+
+  async function uploadFileDirectToShopify(apiBase, file) {
+    console.log('📤 浏览器直传 Shopify（绕开 Vercel 体积限制）:', file.name, file.size);
+
+    const initResp = await fetch(`${apiBase}/store-file-real`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'init',
+        fileName: file.name,
+        fileType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+      }),
+    });
+
+    if (!initResp.ok) {
+      const text = await initResp.text();
+      throw new Error(`获取上传凭证失败 (${initResp.status}): ${text}`);
+    }
+
+    const initJson = await initResp.json();
+    if (!initJson.success || !initJson.stagedTarget) {
+      throw new Error(initJson.message || 'Staged Upload 初始化失败');
+    }
+
+    const { stagedTarget, contentCategory } = initJson;
+    const parameters = Array.isArray(stagedTarget.parameters) ? stagedTarget.parameters : [];
+    const hasPolicy = parameters.some((param) => param.name === 'policy');
+
+    let uploadResp;
+    if (hasPolicy) {
+      const formData = new FormData();
+      parameters.forEach((param) => formData.append(param.name, param.value));
+      formData.append('file', file, file.name);
+      uploadResp = await fetch(stagedTarget.url, { method: 'POST', body: formData });
+    } else {
+      const contentTypeParam = parameters.find((param) => param.name === 'content_type');
+      uploadResp = await fetch(stagedTarget.url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentTypeParam
+            ? contentTypeParam.value
+            : (file.type || 'application/octet-stream'),
+        },
+        body: file,
+      });
+    }
+
+    if (!uploadResp.ok) {
+      const text = await uploadResp.text();
+      throw new Error(`直传到 Shopify 失败 (${uploadResp.status}): ${text}`);
+    }
+
+    const completeResp = await fetch(`${apiBase}/store-file-real`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'complete',
+        fileName: file.name,
+        fileType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+        resourceUrl: stagedTarget.resourceUrl,
+        contentCategory,
+      }),
+    });
+
+    if (!completeResp.ok) {
+      const text = await completeResp.text();
+      throw new Error(`完成文件登记失败 (${completeResp.status}): ${text}`);
+    }
+
+    const json = await completeResp.json();
+    console.log('✅ 直传完成:', json);
+    return {
+      fileId: json.fileId,
+      shopifyFileId: json.shopifyFileId,
+      shopifyFileUrl: json.shopifyFileUrl,
+      originalFileSize: json.originalFileSize,
+    };
+  }
+
+  async function uploadFileViaBase64(apiBase, file) {
+    console.log('📤 Base64 上传（小文件）:', file.name, file.size);
+    const readerResult = await getFileBase64(file);
+
+    const resp = await fetch(`${apiBase}/store-file-real`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileData: readerResult,
+        fileName: file.name,
+        fileType: file.type || 'application/octet-stream',
+      }),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`上传文件失败 (${resp.status}): ${text}`);
+    }
+
+    const json = await resp.json();
+    console.log('✅ store-file-real 返回:', json);
+    return {
+      fileId: json.fileId,
+      shopifyFileId: json.shopifyFileId,
+      shopifyFileUrl: json.shopifyFileUrl,
+      originalFileSize: json.originalFileSize,
+    };
+  }
+
+  async function uploadToShopifyFiles(apiBase, file) {
+    if (file.size > DIRECT_UPLOAD_THRESHOLD_BYTES) {
+      return uploadFileDirectToShopify(apiBase, file);
+    }
+    return uploadFileViaBase64(apiBase, file);
+  }
+
   // 提交到草稿订单（支持 3D + 2D 多文件，每个3D文件创建独立订单）
   async function submitToDraftOrder() {
     console.log('📝 开始创建草稿订单（每个3D文件独立订单）...');
@@ -1790,37 +1909,6 @@
     // 2. 先保存当前文件的配置（如果正在编辑）
     if (fileManager.currentFileId) {
       updateCurrentFileParameters();
-    }
-
-    // 3. 辅助：上传单个文件到后端 /api/store-file-real，返回 { fileId, shopifyFileId, shopifyFileUrl, originalFileSize }
-    async function uploadToShopifyFiles(file) {
-      console.log('📤 上传文件到 /api/store-file-real:', file.name, file.type, file.size);
-      const readerResult = await getFileBase64(file); // 现有函数，返回 data:URL
-
-      const resp = await fetch(`${API_BASE}/store-file-real`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileData: readerResult,
-          fileName: file.name,
-          fileType: file.type || 'application/octet-stream',
-        }),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        console.error('❌ 上传到 store-file-real 失败:', resp.status, text);
-        throw new Error(`上传文件失败 (${resp.status})`);
-      }
-
-      const json = await resp.json();
-      console.log('✅ store-file-real 返回:', json);
-      return {
-        fileId: json.fileId,
-        shopifyFileId: json.shopifyFileId,
-        shopifyFileUrl: json.shopifyFileUrl,
-        originalFileSize: json.originalFileSize,
-      };
     }
 
     // 4. 为每个 3D 文件创建独立的订单
@@ -1846,7 +1934,7 @@
       // 4.1 上传 3D 文件到 Shopify Files
       let threeDMeta;
       try {
-        threeDMeta = await uploadToShopifyFiles(fileData.file);
+        threeDMeta = await uploadToShopifyFiles(API_BASE, fileData.file);
       } catch (e) {
         console.error('❌ 3D 文件上传失败，文件名:', fileData.file.name, e);
         throw e;
@@ -1915,7 +2003,7 @@
 
         let twoDMeta;
         try {
-          twoDMeta = await uploadToShopifyFiles(twoDData.file);
+          twoDMeta = await uploadToShopifyFiles(API_BASE, twoDData.file);
         } catch (e) {
           console.error('❌ 2D 文件上传失败，文件名:', twoDData.file.name, e);
           continue; // 不阻断整个订单
