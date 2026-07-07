@@ -692,6 +692,37 @@ const authParams = () => isAdmin
   : `email=${encodeURIComponent(customerEmail)}`;
 const authQuery = authParams();
 
+// 客户订单页仅展示下单时选择的参数；详细加工特征仅管理员可见
+const CUSTOMER_VISIBLE_ATTRIBUTE_KEYS = new Set([
+  '材料大类', '材料', '表面处理', '最严公差', '表面粗糙度', '是否有螺纹', '是否有装配关系', '备注',
+  '颜色', '精度', '精度等级', '公差标准', '颜色与表面', '是否有装配标记', '缩放比例',
+]);
+const ADMIN_ONLY_MACHINING_KEYS = [
+  '加工特征状态', '加工特征错误', '解析提示', '加工特征摘要',
+  '孔数量', '型腔数量', '圆角数量', '轴凸台数量', '需人工复核', '复核原因',
+  '模型面数', '模型边数', '网格三角面数',
+  '孔径范围', '孔尺寸分布', '沉头/台阶孔数', '孔深度范围', '孔深度方法', '通孔数量',
+  '圆角半径范围', '圆角规格分布', '圆角规格种数',
+  '型腔深度', '型腔深度方法', '型腔开口尺寸', '深型腔数量', '窄型腔数量', '型腔总体积',
+];
+const INTERNAL_ATTRIBUTE_KEYS = new Set([
+  'Order Type', '文件类型', '文件ID', 'Shopify文件ID', 'Shopify文件URL', '原始文件大小',
+  '_uuid', '客户姓名', '客户邮箱', '文件大小', '关联3D文件', 'Quote Status',
+]);
+
+function isAdminOnlyAttributeKey(key) {
+  return ADMIN_ONLY_MACHINING_KEYS.includes(key);
+}
+
+function filterAttributesForCustomer(attrs) {
+  return (attrs || []).filter(attr => {
+    if (!attr || !attr.key) return false;
+    if (INTERNAL_ATTRIBUTE_KEYS.has(attr.key)) return false;
+    if (isAdminOnlyAttributeKey(attr.key)) return false;
+    return CUSTOMER_VISIBLE_ATTRIBUTE_KEYS.has(attr.key);
+  });
+}
+
 // 从URL获取订单ID
 const urlParams = new URLSearchParams(window.location.search);
 const draftOrderId = urlParams.get('id');
@@ -1079,19 +1110,7 @@ function createItemCard(item, orderTotalPrice) {
     }
   });
 
-  const machiningParamOrder = [
-    '加工特征状态', '模型面数', '孔径范围', '孔尺寸分布', '孔深度范围', '孔深度方法',
-    '通孔数量', '圆角半径范围', '圆角规格分布', '型腔深度', '型腔深度方法',
-    '型腔开口尺寸', '深型腔数量', '窄型腔数量', '型腔总体积', '需人工复核'
-  ];
-  machiningParamOrder.forEach(key => {
-    const value = getAttribute(key);
-    if (value && value !== '未指定' && value !== '未提供') {
-      if (!paramDetails.some(p => p.label === key)) {
-        paramDetails.push({ label: key, value });
-      }
-    }
-  });
+  // 客户询价页不展示 Palmetto 加工特征，详细参数请至后台 admin-draft-orders 查看
   
   card.innerHTML = `
     <div class="item-header">
@@ -1315,8 +1334,8 @@ async function placeOrder() {
           'Quote Status': 'Quoted'
         };
         
-        // 添加所有自定义属性
-        attrs.forEach(attr => {
+        // 客户下单时只携带可见参数，详细加工特征留在 Draft Order 供后台查看
+        filterAttributesForCustomer(attrs).forEach(attr => {
           properties[attr.key] = attr.value;
         });
         
