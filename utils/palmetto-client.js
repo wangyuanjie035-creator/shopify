@@ -97,6 +97,9 @@ function mapPalmettoFeature(raw) {
   if (params.axis_x != null) {
     properties.axis = [params.axis_x, params.axis_y, params.axis_z];
   }
+  if (params.axis_origin_x != null) {
+    properties.axisOrigin = [params.axis_origin_x, params.axis_origin_y, params.axis_origin_z];
+  }
 
   return {
     feature_id: raw.id,
