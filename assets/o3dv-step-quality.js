@@ -1,13 +1,17 @@
 /**
- * Finer STEP tessellation for Online3DViewer / occt-import-js.
+ * STEP tessellation override for Online3DViewer / occt-import-js.
  * Must load before o3dv.min.js so Worker postMessage can be patched.
+ *
+ * Current preset: coarse (for comparing low-quality preview vs fine CAD look).
+ * Fine preset was linearDeflection 0.00025 / angularDeflection 0.12.
+ * O3DV default was 0.001 / 0.5.
  */
 (function () {
   const STEP_MESH_PARAMS = {
     linearUnit: 'millimeter',
     linearDeflectionType: 'bounding_box_ratio',
-    linearDeflection: 0.00025,
-    angularDeflection: 0.12,
+    linearDeflection: 0.01,
+    angularDeflection: 1.2,
   };
 
   function enhanceStepParams(params) {
