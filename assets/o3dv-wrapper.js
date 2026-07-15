@@ -6,8 +6,8 @@
 /** Brushed aluminum / steel preview */
 const O3DV_SURFACE_COLOR = { r: 181, g: 184, b: 189 };
 const O3DV_SURFACE_HEX = 0xb5b8bd;
-const O3DV_METAL_SPECULAR = 0xeeeeee;
-const O3DV_METAL_SHININESS = 78;
+const O3DV_METAL_SPECULAR = 0xbbbbbb;
+const O3DV_METAL_SHININESS = 52;
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
 
 class O3DVWrapper {
@@ -382,10 +382,10 @@ class O3DVWrapper {
       sm.directionalLight.target.position.set(center.x, center.y, center.z);
       sm.directionalLight.target.updateMatrixWorld();
       sm.directionalLight.color.setHex(0xffffff);
-      sm.directionalLight.intensity = 1.05 * pi;
+      sm.directionalLight.intensity = 0.72 * pi;
 
-      sm.ambientLight.color.setHex(0x777777);
-      sm.ambientLight.intensity = 0.4 * pi;
+      sm.ambientLight.color.setHex(0x888888);
+      sm.ambientLight.intensity = 0.62 * pi;
     };
     sm._o3dvViewLightPatched = true;
   }
