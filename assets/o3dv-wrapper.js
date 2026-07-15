@@ -5,7 +5,10 @@
 
 /** CAD-style neutral gray #C5C5C5 with soft specular */
 const O3DV_SURFACE_COLOR = { r: 197, g: 197, b: 197 };
+/** Target appearance #C5C5C5; diffuse is slightly darker so lit faces don't blow out to white. */
 const O3DV_SURFACE_HEX = 0xc5c5c5;
+const O3DV_DIFFUSE_HEX = 0xadadad;
+const O3DV_RENDERER_EXPOSURE = 0.88;
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
 
 /** CAD feature edges: smooth surface + black outline on sharp/boundary edges only */
@@ -371,9 +374,29 @@ class O3DVWrapper {
     return null;
   }
 
+  tunePreviewLighting(innerViewer) {
+    if (!innerViewer) return;
+
+    const sm = innerViewer.shadingModel;
+    const pi = Math.PI;
+    if (sm?.ambientLight) {
+      sm.ambientLight.color.setHex(0x888888);
+      sm.ambientLight.intensity = 1.08 * pi;
+    }
+    if (sm?.directionalLight) {
+      sm.directionalLight.color.setHex(0x707070);
+      sm.directionalLight.intensity = 0.58 * pi;
+    }
+    if (innerViewer.renderer && 'toneMappingExposure' in innerViewer.renderer) {
+      innerViewer.renderer.toneMappingExposure = O3DV_RENDERER_EXPOSURE;
+    }
+  }
+
   polishModelAppearance() {
     const innerViewer = this.getInnerViewer();
     if (!innerViewer) return;
+
+    this.tunePreviewLighting(innerViewer);
 
     const showFeatureEdges = this.options.showEdges === true;
     const edgeThreshold = this.options.edgeThreshold ?? 26;
@@ -384,7 +407,7 @@ class O3DVWrapper {
       return;
     }
 
-    const specularHex = 0x333333;
+    const specularHex = 0x151515;
 
     viewerMainModel.EnumerateMeshes((obj) => {
       if (obj.geometry.attributes?.color) {
@@ -400,7 +423,7 @@ class O3DVWrapper {
           material.vertexColors = false;
         }
         if (material.color && material.color.setHex) {
-          material.color.setHex(O3DV_SURFACE_HEX);
+          material.color.setHex(O3DV_DIFFUSE_HEX);
         }
         if (material.emissive && material.emissive.setHex) {
           material.emissive.setHex(0x000000);
@@ -409,7 +432,7 @@ class O3DVWrapper {
           material.specular.setHex(specularHex);
         }
         if (typeof material.shininess === 'number') {
-          material.shininess = 8;
+          material.shininess = 4;
         }
         if (typeof material.flatShading !== 'undefined') {
           material.flatShading = false;
