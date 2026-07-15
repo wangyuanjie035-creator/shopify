@@ -3380,9 +3380,10 @@
       try {
         o3dvWrapper = new O3DVWrapper('viewer-container', {
           backgroundColor: { r: 245, g: 247, b: 250, a: 255 },
-          defaultColor: { r: 204, g: 204, b: 204 },
-          showEdges: false,
-          edgeThreshold: 40,
+          defaultColor: { r: 208, g: 208, b: 208 },
+          showEdges: true,
+          edgeColor: { r: 0, g: 0, b: 0 },
+          edgeThreshold: 35,
         });
         
         useAdvancedViewer = true;

@@ -2,14 +2,14 @@
  * STEP tessellation override for Online3DViewer / occt-import-js.
  * Must load before o3dv.min.js so Worker postMessage can be patched.
  *
- * Current preset: fine (smooth CAD preview).
+ * Current preset: extra-fine (smooth curves + CAD feature-edge overlay).
  */
 (function () {
   const STEP_MESH_PARAMS = {
     linearUnit: 'millimeter',
     linearDeflectionType: 'bounding_box_ratio',
-    linearDeflection: 0.00025,
-    angularDeflection: 0.12,
+    linearDeflection: 0.00012,
+    angularDeflection: 0.08,
   };
 
   function enhanceStepParams(params) {

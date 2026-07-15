@@ -7,8 +7,8 @@
 const O3DV_SURFACE_COLOR = { r: 204, g: 204, b: 204 };
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
 
-/** Preview mode: false = smooth CAD look; true = show mesh edges on surfaces */
-const O3DV_PREVIEW_SHOW_MESH_EDGES = false;
+/** CAD feature edges: smooth surface + black outline on sharp/boundary edges only */
+const O3DV_CAD_FEATURE_EDGES = true;
 
 class O3DVWrapper {
   constructor(containerId, options = {}) {
@@ -18,9 +18,9 @@ class O3DVWrapper {
       height: 600,
       backgroundColor: O3DV_BACKGROUND,
       defaultColor: O3DV_SURFACE_COLOR,
-      showEdges: O3DV_PREVIEW_SHOW_MESH_EDGES,
-      edgeColor: { r: 60, g: 60, b: 60 },
-      edgeThreshold: 40,
+      showEdges: O3DV_CAD_FEATURE_EDGES,
+      edgeColor: { r: 0, g: 0, b: 0 },
+      edgeThreshold: 35,
       ...options
     };
     
@@ -372,25 +372,36 @@ class O3DVWrapper {
     const innerViewer = this.getInnerViewer();
     if (!innerViewer) return;
 
+    const showFeatureEdges = this.options.showEdges === true;
+    const edgeThreshold = this.options.edgeThreshold ?? 35;
+
     try {
       innerViewer.SetEdgeSettings(new OV.EdgeSettings(
-        false,
-        new OV.RGBColor(60, 60, 60),
-        this.options.edgeThreshold
+        showFeatureEdges,
+        new OV.RGBColor(
+          this.options.edgeColor.r,
+          this.options.edgeColor.g,
+          this.options.edgeColor.b
+        ),
+        edgeThreshold
       ));
     } catch (e) {
-      console.warn('O3DVWrapper: failed to disable edges', e);
+      console.warn('O3DVWrapper: failed to apply edge settings', e);
     }
 
     const mainModel = innerViewer.mainModel;
     if (!mainModel || (typeof mainModel.IsEmpty === 'function' && mainModel.IsEmpty())) {
+      if (typeof innerViewer.Render === 'function') {
+        innerViewer.Render();
+      }
       return;
     }
 
-    const surfaceHex = 0xcccccc;
-    const specularHex = 0x666666;
+    const surfaceHex = 0xd0d0d0;
+    const specularHex = 0x888888;
 
     mainModel.Traverse((obj) => {
+      // Hide imported wireframe lines; O3DV feature edges live in a separate edge layer
       if (obj.isLineSegments || obj.type === 'LineSegments') {
         obj.visible = false;
         return;
@@ -410,7 +421,7 @@ class O3DVWrapper {
           material.specular.setHex(specularHex);
         }
         if (typeof material.shininess === 'number') {
-          material.shininess = 48;
+          material.shininess = 64;
         }
         if (typeof material.flatShading !== 'undefined') {
           material.flatShading = false;
