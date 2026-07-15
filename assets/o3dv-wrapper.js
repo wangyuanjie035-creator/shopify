@@ -21,7 +21,7 @@ class O3DVWrapper {
       defaultColor: O3DV_SURFACE_COLOR,
       showEdges: O3DV_CAD_FEATURE_EDGES,
       edgeColor: { r: 0, g: 0, b: 0 },
-      edgeThreshold: 28,
+      edgeThreshold: 20,
       ...options
     };
     
@@ -374,29 +374,22 @@ class O3DVWrapper {
     if (!innerViewer) return;
 
     const showFeatureEdges = this.options.showEdges === true;
-    const edgeThreshold = this.options.edgeThreshold ?? 28;
+    const edgeThreshold = this.options.edgeThreshold ?? 20;
 
-    const mainModel = innerViewer.mainModel;
-    if (!mainModel || (typeof mainModel.IsEmpty === 'function' && mainModel.IsEmpty())) {
+    const viewerMainModel = innerViewer.mainModel;
+    if (!viewerMainModel || viewerMainModel.mainModel?.IsEmpty?.()) {
       this.applyFeatureEdges(innerViewer, showFeatureEdges, edgeThreshold);
       return;
     }
 
     const specularHex = 0x444444;
 
-    mainModel.Traverse((obj) => {
-      if (obj.isLineSegments || obj.type === 'LineSegments') {
-        obj.visible = false;
-        return;
-      }
-      if (!obj.isMesh || !obj.geometry) return;
-
+    viewerMainModel.EnumerateMeshes((obj) => {
       if (obj.geometry.attributes?.color) {
         obj.geometry.deleteAttribute('color');
       }
-      if (obj.geometry.attributes?.position && obj.geometry.computeVertexNormals) {
-        obj.geometry.computeVertexNormals();
-      }
+      // Keep OCCT per-corner normals — do NOT call computeVertexNormals() or
+      // dihedral / B-rep boundary edges disappear on fillets and flat faces.
 
       const applyMaterial = (material) => {
         if (!material) return;
@@ -432,8 +425,135 @@ class O3DVWrapper {
     }
   }
 
+  getThreeClasses(innerViewer) {
+    if (this._threeClasses) return this._threeClasses;
+
+    let bufferGeometry = null;
+    let float32Attr = null;
+    let lineSegments = null;
+    let lineBasicMaterial = null;
+
+    innerViewer.mainModel.EnumerateMeshes((mesh) => {
+      if (bufferGeometry) return;
+      bufferGeometry = mesh.geometry.constructor;
+      float32Attr = mesh.geometry.attributes.position.constructor;
+    });
+
+    innerViewer.mainModel.EnumerateEdges((edge) => {
+      if (lineSegments) return;
+      lineSegments = edge.constructor;
+      lineBasicMaterial = edge.material?.constructor || lineBasicMaterial;
+    });
+
+    if (!bufferGeometry || !lineSegments) return null;
+
+    this._threeClasses = {
+      BufferGeometry: bufferGeometry,
+      Float32BufferAttribute: float32Attr,
+      LineSegments: lineSegments,
+      LineBasicMaterial: lineBasicMaterial,
+    };
+    return this._threeClasses;
+  }
+
+  extractBrepFaceBoundarySegments(threeMesh) {
+    const original = threeMesh.userData?.originalMeshInstance;
+    const ovMesh = original?.mesh;
+    if (!ovMesh || typeof ovMesh.TriangleCount !== 'function') return [];
+
+    const triangleCount = ovMesh.TriangleCount();
+    if (triangleCount === 0) return [];
+
+    const edgeMap = new Map();
+
+    const recordEdge = (i0, i1, mat) => {
+      const a = Math.min(i0, i1);
+      const b = Math.max(i0, i1);
+      const key = `${a},${b}`;
+      if (!edgeMap.has(key)) edgeMap.set(key, []);
+      edgeMap.get(key).push({ i0: a, i1: b, mat });
+    };
+
+    for (let t = 0; t < triangleCount; t++) {
+      const tri = ovMesh.GetTriangle(t);
+      const mat = tri.mat;
+      recordEdge(tri.v0, tri.v1, mat);
+      recordEdge(tri.v1, tri.v2, mat);
+      recordEdge(tri.v2, tri.v0, mat);
+    }
+
+    const segments = [];
+    const seen = new Set();
+
+    edgeMap.forEach((entries) => {
+      if (entries.length < 2) return;
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const a = entries[i];
+          const b = entries[j];
+          if (a.mat === b.mat) continue;
+
+          const dedupeKey = `${a.i0},${a.i1}|${a.mat}|${b.mat}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+
+          const v0 = ovMesh.GetVertex(a.i0);
+          const v1 = ovMesh.GetVertex(a.i1);
+          segments.push(v0.x, v0.y, v0.z, v1.x, v1.y, v1.z);
+        }
+      }
+    });
+
+    return segments;
+  }
+
+  removeCustomBrepBoundaryEdges(viewerMainModel) {
+    const edgeModel = viewerMainModel?.edgeModel;
+    if (!edgeModel || edgeModel.IsEmpty()) return;
+
+    const toRemove = [];
+    edgeModel.Traverse((obj) => {
+      if (obj.isLineSegments && obj.userData?.o3dvBrepBoundary) {
+        toRemove.push(obj);
+      }
+    });
+
+    toRemove.forEach((obj) => {
+      if (obj.parent) obj.parent.remove(obj);
+      obj.geometry?.dispose?.();
+      obj.material?.dispose?.();
+    });
+  }
+
+  appendBrepFaceBoundaryEdges(innerViewer, viewerMainModel) {
+    const THREE = this.getThreeClasses(innerViewer);
+    if (!THREE) return;
+
+    const { r, g, b } = this.options.edgeColor;
+    const edgeColor = (r << 16) | (g << 8) | b;
+
+    viewerMainModel.UpdateWorldMatrix();
+
+    viewerMainModel.EnumerateMeshes((mesh) => {
+      const segments = this.extractBrepFaceBoundarySegments(mesh);
+      if (segments.length === 0) return;
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(segments, 3));
+
+      const material = new THREE.LineBasicMaterial({ color: edgeColor });
+      const line = new THREE.LineSegments(geometry, material);
+      line.applyMatrix4(mesh.matrixWorld);
+      line.userData = { o3dvBrepBoundary: true };
+      viewerMainModel.edgeModel.AddObject(line);
+    });
+  }
+
   applyFeatureEdges(innerViewer, showFeatureEdges, edgeThreshold) {
     try {
+      const viewerMainModel = innerViewer.mainModel;
+      this.removeCustomBrepBoundaryEdges(viewerMainModel);
+
       innerViewer.SetEdgeSettings(new OV.EdgeSettings(
         showFeatureEdges,
         new OV.RGBColor(
@@ -443,6 +563,13 @@ class O3DVWrapper {
         ),
         edgeThreshold
       ));
+
+      if (showFeatureEdges) {
+        this.appendBrepFaceBoundaryEdges(innerViewer, viewerMainModel);
+        if (typeof viewerMainModel.UpdatePolygonOffset === 'function') {
+          viewerMainModel.UpdatePolygonOffset();
+        }
+      }
     } catch (e) {
       console.warn('O3DVWrapper: failed to apply edge settings', e);
     }

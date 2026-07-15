@@ -22,6 +22,33 @@
     };
   }
 
+  /** Imperceptible per-face tint so O3DV assigns one material per B-rep face (for boundary edges). */
+  function assignUniqueBrepFaceColors(meshes) {
+    if (!Array.isArray(meshes)) return;
+    const base = 197;
+    meshes.forEach((mesh, meshIdx) => {
+      if (!Array.isArray(mesh.brep_faces)) return;
+      mesh.brep_faces.forEach((face, faceIdx) => {
+        const slot = meshIdx * 4096 + faceIdx;
+        face.color = [
+          (base + (slot % 5)) / 255,
+          (base + ((slot >> 4) % 5)) / 255,
+          (base + ((slot >> 8) % 5)) / 255,
+        ];
+      });
+    });
+  }
+
+  function wrapOcctResultListener(listener) {
+    return function onOcctWorkerMessage(ev) {
+      const data = ev && ev.data;
+      if (data && data.success && Array.isArray(data.meshes)) {
+        assignUniqueBrepFaceColors(data.meshes);
+      }
+      return listener.call(this, ev);
+    };
+  }
+
   function patchWorkerInstance(worker) {
     if (!worker || worker.__o3dvStepQualityPatched) return worker;
     const originalPostMessage = worker.postMessage.bind(worker);
@@ -31,6 +58,15 @@
       }
       return originalPostMessage(message, transfer);
     };
+
+    const originalAddEventListener = worker.addEventListener.bind(worker);
+    worker.addEventListener = function patchedAddEventListener(type, listener, options) {
+      if (type === 'message' && typeof listener === 'function') {
+        return originalAddEventListener(type, wrapOcctResultListener(listener), options);
+      }
+      return originalAddEventListener(type, listener, options);
+    };
+
     worker.__o3dvStepQualityPatched = true;
     return worker;
   }

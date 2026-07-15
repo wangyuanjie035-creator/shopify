@@ -3383,7 +3383,7 @@
           defaultColor: { r: 197, g: 197, b: 197 },
           showEdges: true,
           edgeColor: { r: 0, g: 0, b: 0 },
-          edgeThreshold: 28,
+          edgeThreshold: 20,
         });
         
         useAdvancedViewer = true;
