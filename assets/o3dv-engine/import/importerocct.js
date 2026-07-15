@@ -69,8 +69,8 @@ export class ImporterOcct extends ImporterBase
             let params = {
                 linearUnit: 'millimeter',
                 linearDeflectionType: 'bounding_box_ratio',
-                linearDeflection: 0.001,
-                angularDeflection: 0.5
+                linearDeflection: 0.00025,
+                angularDeflection: 0.12
             };
             let fileBuffer = new Uint8Array (fileContent);
             this.worker.postMessage ({

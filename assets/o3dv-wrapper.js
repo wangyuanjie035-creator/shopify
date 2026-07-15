@@ -3,17 +3,21 @@
  * 专门为model-uploader项目定制的3D查看器包装器
  */
 
+/** CAD-style neutral gray with soft specular highlight */
+const O3DV_SURFACE_COLOR = { r: 204, g: 204, b: 204 };
+const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
+
 class O3DVWrapper {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
     this.options = {
       width: 800,
       height: 600,
-      backgroundColor: { r: 255, g: 255, b: 255, a: 255 },
-      defaultColor: { r: 200, g: 200, b: 200 },
+      backgroundColor: O3DV_BACKGROUND,
+      defaultColor: O3DV_SURFACE_COLOR,
       showEdges: false,
-      edgeColor: { r: 0, g: 0, b: 0 },
-      edgeWidth: 1,
+      edgeColor: { r: 60, g: 60, b: 60 },
+      edgeThreshold: 40,
       ...options
     };
     
@@ -43,9 +47,12 @@ class O3DVWrapper {
     if (existingPlaceholder) {
       existingPlaceholder.style.display = 'none';
     }
-    
+
+    const width = this.container.clientWidth || this.options.width;
+    const height = this.container.clientHeight || this.options.height;
+
     this.container.innerHTML = `
-      <div class="o3dv-container" style="width: ${this.options.width}px; height: ${this.options.height}px; border: 1px solid #ddd; position: relative;">
+      <div class="o3dv-container" style="width: 100%; height: 100%; min-height: ${height}px; border: 1px solid #ddd; position: relative;">
         <div class="o3dv-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; display: none;">
           <div class="spinner" style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #1976d2; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px;"></div>
           <p>正在加载3D查看器...</p>
@@ -72,12 +79,13 @@ class O3DVWrapper {
           100% { transform: rotate(360deg); }
         }
         .o3dv-container {
-          background: #f8f9fa;
+          background: linear-gradient(180deg, #f8f9fb 0%, #eef1f5 100%);
           border-radius: 8px;
           overflow: hidden;
         }
         .o3dv-viewer canvas {
           border-radius: 8px;
+          display: block;
         }
       `;
       document.head.appendChild(style);
@@ -128,10 +136,11 @@ class O3DVWrapper {
             this.options.edgeColor.g,
             this.options.edgeColor.b
           ),
-          this.options.edgeWidth
+          this.options.edgeThreshold
         ),
-        // 增加内存限制以支持更大的文件
-        memoryLimit: 100 * 1024 * 1024 // 100MB
+        onModelLoaded: () => {
+          this.polishModelAppearance();
+        },
       });
 
       // 隐藏所有加载指示器，显示查看器
@@ -196,31 +205,39 @@ class O3DVWrapper {
           this.hideLoadingSafely();
           this.currentModel = file;
           console.log('O3DVWrapper: STP file loaded successfully');
-          
+
+          this.polishModelAppearance();
+
           // 渲染完成后适配窗口并触发一次重绘
           try {
-            if (this.viewer && typeof this.viewer.FitToWindow === 'function') {
-              this.viewer.FitToWindow();
-            }
             if (this.viewer && typeof this.viewer.Resize === 'function') {
               this.viewer.Resize();
             }
+            const innerViewer = this.getInnerViewer();
+            if (innerViewer && typeof innerViewer.FitSphereToWindow === 'function') {
+              const sphere = innerViewer.GetBoundingSphere(() => true);
+              innerViewer.FitSphereToWindow(sphere, false);
+            } else if (this.viewer && typeof this.viewer.FitToWindow === 'function') {
+              this.viewer.FitToWindow();
+            }
           } catch (e) {}
-          
+
           // 延迟一帧再次适配，确保加载指示器完全隐藏
           requestAnimationFrame(() => {
             try {
+              this.polishModelAppearance();
               if (this.viewer && typeof this.viewer.Resize === 'function') {
                 this.viewer.Resize();
               }
-              if (this.viewer && typeof this.viewer.FitToWindow === 'function') {
-                this.viewer.FitToWindow();
+              const innerViewer = this.getInnerViewer();
+              if (innerViewer && typeof innerViewer.FitSphereToWindow === 'function') {
+                const sphere = innerViewer.GetBoundingSphere(() => true);
+                innerViewer.FitSphereToWindow(sphere, false);
               }
             } catch (e) {}
-            // 再次确保加载指示器隐藏
             this.hideLoadingSafely();
           });
-          
+
           resolve(file);
         });
         // 超时兜底：根据文件大小调整超时时间，大文件给更多时间
@@ -308,7 +325,16 @@ class O3DVWrapper {
       return;
     }
 
-    this.viewer.FitToWindow();
+    const innerViewer = this.getInnerViewer();
+    if (innerViewer && typeof innerViewer.GetBoundingSphere === 'function') {
+      const sphere = innerViewer.GetBoundingSphere(() => true);
+      innerViewer.FitSphereToWindow(sphere, false);
+      return;
+    }
+
+    if (typeof this.viewer.FitToWindow === 'function') {
+      this.viewer.FitToWindow();
+    }
   }
 
   // 设置背景色
@@ -331,10 +357,90 @@ class O3DVWrapper {
     this.viewer.SetDefaultColor(new OV.RGBColor(color.r, color.g, color.b));
   }
 
+  getInnerViewer() {
+    if (!this.viewer) return null;
+    if (typeof this.viewer.GetViewer === 'function') {
+      return this.viewer.GetViewer();
+    }
+    return null;
+  }
+
+  polishModelAppearance() {
+    const innerViewer = this.getInnerViewer();
+    if (!innerViewer) return;
+
+    try {
+      innerViewer.SetEdgeSettings(new OV.EdgeSettings(
+        false,
+        new OV.RGBColor(60, 60, 60),
+        this.options.edgeThreshold
+      ));
+    } catch (e) {
+      console.warn('O3DVWrapper: failed to disable edges', e);
+    }
+
+    const mainModel = innerViewer.mainModel;
+    if (!mainModel || (typeof mainModel.IsEmpty === 'function' && mainModel.IsEmpty())) {
+      return;
+    }
+
+    const surfaceHex = 0xcccccc;
+    const specularHex = 0x666666;
+
+    mainModel.Traverse((obj) => {
+      if (obj.isLineSegments || obj.type === 'LineSegments') {
+        obj.visible = false;
+        return;
+      }
+      if (!obj.isMesh || !obj.geometry) return;
+
+      if (obj.geometry.attributes?.position && obj.geometry.computeVertexNormals) {
+        obj.geometry.computeVertexNormals();
+      }
+
+      const applyMaterial = (material) => {
+        if (!material) return;
+        if (material.color && material.color.setHex) {
+          material.color.setHex(surfaceHex);
+        }
+        if (material.specular && material.specular.setHex) {
+          material.specular.setHex(specularHex);
+        }
+        if (typeof material.shininess === 'number') {
+          material.shininess = 48;
+        }
+        if (typeof material.flatShading !== 'undefined') {
+          material.flatShading = false;
+        }
+        material.needsUpdate = true;
+      };
+
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach(applyMaterial);
+      } else {
+        applyMaterial(obj.material);
+      }
+    });
+
+    if (typeof innerViewer.Render === 'function') {
+      innerViewer.Render();
+    }
+  }
+
   // 显示/隐藏边缘
   setShowEdges(show) {
     if (!this.isInitialized || !this.viewer) {
       console.error('O3DVWrapper: Viewer not initialized');
+      return;
+    }
+
+    const innerViewer = this.getInnerViewer();
+    if (innerViewer) {
+      innerViewer.SetEdgeSettings(new OV.EdgeSettings(
+        show,
+        new OV.RGBColor(60, 60, 60),
+        this.options.edgeThreshold
+      ));
       return;
     }
 
