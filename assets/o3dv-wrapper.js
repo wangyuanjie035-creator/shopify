@@ -6,6 +6,8 @@
 /** CAD-style neutral gray #C5C5C5 with soft specular */
 const O3DV_SURFACE_COLOR = { r: 197, g: 197, b: 197 };
 const O3DV_SURFACE_HEX = 0xc5c5c5;
+/** Lift shadowed faces toward base gray (compresses bright/dark spread). */
+const O3DV_CAD_EMISSIVE_HEX = 0x505050;
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
 
 /** CAD feature edges: smooth surface + black outline on sharp/boundary edges only */
@@ -143,6 +145,7 @@ class O3DVWrapper {
           this.options.edgeThreshold
         ),
         onModelLoaded: () => {
+          this.applyCadLighting();
           this.polishModelAppearance();
         },
       });
@@ -371,9 +374,70 @@ class O3DVWrapper {
     return null;
   }
 
+  ensureCadLightingHook(innerViewer) {
+    if (this._cadLightingHooked || !innerViewer?.Render) return;
+    const origRender = innerViewer.Render.bind(innerViewer);
+    innerViewer.Render = () => {
+      this.applyCadLighting();
+      origRender();
+    };
+    this._cadLightingHooked = true;
+  }
+
+  applyCadLighting() {
+    const innerViewer = this.getInnerViewer();
+    const shadingModel = innerViewer?.shadingModel;
+    if (!shadingModel) return;
+
+    const pi = Math.PI;
+    if (shadingModel.ambientLight) {
+      shadingModel.ambientLight.color.setHex(0xffffff);
+      shadingModel.ambientLight.intensity = 1.65 * pi;
+    }
+    if (shadingModel.directionalLight) {
+      shadingModel.directionalLight.color.setHex(0xffffff);
+      shadingModel.directionalLight.intensity = 0.28 * pi;
+    }
+
+    if (!shadingModel.o3dvFillLight && shadingModel.scene) {
+      const sample = shadingModel.directionalLight;
+      const FillLight = sample?.constructor;
+      if (FillLight) {
+        shadingModel.o3dvFillLight = new FillLight(0xffffff, 0.18 * pi);
+        shadingModel.scene.add(shadingModel.o3dvFillLight);
+      }
+    }
+    if (shadingModel.o3dvFillLight && shadingModel.directionalLight) {
+      const main = shadingModel.directionalLight.position;
+      shadingModel.o3dvFillLight.position.set(-main.x * 0.6, -main.y * 0.35, -main.z * 0.6);
+    }
+  }
+
+  getOrCreateCadMaterial(sampleMaterial) {
+    if (this._cadSurfaceMaterial) return this._cadSurfaceMaterial;
+    if (!sampleMaterial?.constructor) return null;
+
+    const MatClass = sampleMaterial.constructor;
+    this._cadSurfaceMaterial = new MatClass({
+      color: O3DV_SURFACE_HEX,
+      emissive: O3DV_CAD_EMISSIVE_HEX,
+      specular: 0x000000,
+      shininess: 0,
+      flatShading: false,
+      vertexColors: false,
+      opacity: 1,
+      transparent: false,
+      side: sampleMaterial.side,
+    });
+    return this._cadSurfaceMaterial;
+  }
+
   polishModelAppearance() {
     const innerViewer = this.getInnerViewer();
     if (!innerViewer) return;
+
+    this.ensureCadLightingHook(innerViewer);
+    this.applyCadLighting();
 
     const showFeatureEdges = this.options.showEdges === true;
     const edgeThreshold = this.options.edgeThreshold ?? 26;
@@ -384,14 +448,22 @@ class O3DVWrapper {
       return;
     }
 
-    const specularHex = 0x181818;
-
     viewerMainModel.EnumerateMeshes((obj) => {
       if (obj.geometry.attributes?.color) {
         obj.geometry.deleteAttribute('color');
       }
       if (obj.geometry.attributes?.position && obj.geometry.computeVertexNormals) {
         obj.geometry.computeVertexNormals();
+      }
+
+      const sample = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+      const cadMaterial = this.getOrCreateCadMaterial(sample);
+      if (cadMaterial) {
+        obj.material = cadMaterial;
+        if (obj.userData) {
+          obj.userData.threeMaterials = [cadMaterial];
+        }
+        return;
       }
 
       const applyMaterial = (material) => {
@@ -402,14 +474,14 @@ class O3DVWrapper {
         if (material.color && material.color.setHex) {
           material.color.setHex(O3DV_SURFACE_HEX);
         }
-        if (material.specular && material.specular.setHex) {
-          material.specular.setHex(specularHex);
-        }
         if (material.emissive && material.emissive.setHex) {
-          material.emissive.setHex(0x000000);
+          material.emissive.setHex(O3DV_CAD_EMISSIVE_HEX);
+        }
+        if (material.specular && material.specular.setHex) {
+          material.specular.setHex(0x000000);
         }
         if (typeof material.shininess === 'number') {
-          material.shininess = 10;
+          material.shininess = 0;
         }
         if (typeof material.flatShading !== 'undefined') {
           material.flatShading = false;
