@@ -21,7 +21,7 @@ class O3DVWrapper {
       defaultColor: O3DV_SURFACE_COLOR,
       showEdges: O3DV_CAD_FEATURE_EDGES,
       edgeColor: { r: 0, g: 0, b: 0 },
-      edgeThreshold: 20,
+      edgeThreshold: 26,
       ...options
     };
     
@@ -208,6 +208,8 @@ class O3DVWrapper {
           // 立即隐藏加载指示器
           this.hideLoadingSafely();
           this.currentModel = file;
+          this._brepFaceData = window.__O3DV_BREP_FACE_DATA__ || null;
+          window.__O3DV_BREP_FACE_DATA__ = null;
           console.log('O3DVWrapper: STP file loaded successfully');
 
           this.polishModelAppearance();
@@ -374,7 +376,7 @@ class O3DVWrapper {
     if (!innerViewer) return;
 
     const showFeatureEdges = this.options.showEdges === true;
-    const edgeThreshold = this.options.edgeThreshold ?? 20;
+    const edgeThreshold = this.options.edgeThreshold ?? 26;
 
     const viewerMainModel = innerViewer.mainModel;
     if (!viewerMainModel || viewerMainModel.mainModel?.IsEmpty?.()) {
@@ -382,14 +384,15 @@ class O3DVWrapper {
       return;
     }
 
-    const specularHex = 0x444444;
+    const specularHex = 0x181818;
 
     viewerMainModel.EnumerateMeshes((obj) => {
       if (obj.geometry.attributes?.color) {
         obj.geometry.deleteAttribute('color');
       }
-      // Keep OCCT per-corner normals — do NOT call computeVertexNormals() or
-      // dihedral / B-rep boundary edges disappear on fillets and flat faces.
+      if (obj.geometry.attributes?.position && obj.geometry.computeVertexNormals) {
+        obj.geometry.computeVertexNormals();
+      }
 
       const applyMaterial = (material) => {
         if (!material) return;
@@ -402,8 +405,11 @@ class O3DVWrapper {
         if (material.specular && material.specular.setHex) {
           material.specular.setHex(specularHex);
         }
+        if (material.emissive && material.emissive.setHex) {
+          material.emissive.setHex(0x000000);
+        }
         if (typeof material.shininess === 'number') {
-          material.shininess = 28;
+          material.shininess = 10;
         }
         if (typeof material.flatShading !== 'undefined') {
           material.flatShading = false;
@@ -411,11 +417,22 @@ class O3DVWrapper {
         material.needsUpdate = true;
       };
 
+      const materials = new Set();
+      const collect = (material) => {
+        if (material) materials.add(material);
+      };
       if (Array.isArray(obj.material)) {
-        obj.material.forEach(applyMaterial);
+        obj.material.forEach(collect);
       } else {
-        applyMaterial(obj.material);
+        collect(obj.material);
       }
+      if (Array.isArray(obj.userData?.originalMaterials)) {
+        obj.userData.originalMaterials.forEach(collect);
+      }
+      if (Array.isArray(obj.userData?.threeMaterials)) {
+        obj.userData.threeMaterials.forEach(collect);
+      }
+      materials.forEach(applyMaterial);
     });
 
     this.applyFeatureEdges(innerViewer, showFeatureEdges, edgeThreshold);
@@ -456,30 +473,41 @@ class O3DVWrapper {
     return this._threeClasses;
   }
 
-  extractBrepFaceBoundarySegments(threeMesh) {
+  getFaceIdForTriangle(triangleIndex, brepFaces) {
+    if (!Array.isArray(brepFaces) || brepFaces.length === 0) return -1;
+    for (let i = 0; i < brepFaces.length; i++) {
+      const face = brepFaces[i];
+      if (triangleIndex >= face.first && triangleIndex <= face.last) return i;
+    }
+    return -1;
+  }
+
+  extractBrepFaceBoundarySegments(threeMesh, brepFaces) {
     const original = threeMesh.userData?.originalMeshInstance;
     const ovMesh = original?.mesh;
     if (!ovMesh || typeof ovMesh.TriangleCount !== 'function') return [];
+    if (!Array.isArray(brepFaces) || brepFaces.length === 0) return [];
 
     const triangleCount = ovMesh.TriangleCount();
     if (triangleCount === 0) return [];
 
     const edgeMap = new Map();
 
-    const recordEdge = (i0, i1, mat) => {
+    const recordEdge = (i0, i1, faceId) => {
       const a = Math.min(i0, i1);
       const b = Math.max(i0, i1);
       const key = `${a},${b}`;
       if (!edgeMap.has(key)) edgeMap.set(key, []);
-      edgeMap.get(key).push({ i0: a, i1: b, mat });
+      edgeMap.get(key).push({ i0: a, i1: b, faceId });
     };
 
     for (let t = 0; t < triangleCount; t++) {
       const tri = ovMesh.GetTriangle(t);
-      const mat = tri.mat;
-      recordEdge(tri.v0, tri.v1, mat);
-      recordEdge(tri.v1, tri.v2, mat);
-      recordEdge(tri.v2, tri.v0, mat);
+      const faceId = this.getFaceIdForTriangle(t, brepFaces);
+      if (faceId < 0) continue;
+      recordEdge(tri.v0, tri.v1, faceId);
+      recordEdge(tri.v1, tri.v2, faceId);
+      recordEdge(tri.v2, tri.v0, faceId);
     }
 
     const segments = [];
@@ -491,9 +519,9 @@ class O3DVWrapper {
         for (let j = i + 1; j < entries.length; j++) {
           const a = entries[i];
           const b = entries[j];
-          if (a.mat === b.mat) continue;
+          if (a.faceId === b.faceId) continue;
 
-          const dedupeKey = `${a.i0},${a.i1}|${a.mat}|${b.mat}`;
+          const dedupeKey = `${a.i0},${a.i1}|${a.faceId}|${b.faceId}`;
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
 
@@ -534,8 +562,11 @@ class O3DVWrapper {
 
     viewerMainModel.UpdateWorldMatrix();
 
+    let meshIdx = 0;
     viewerMainModel.EnumerateMeshes((mesh) => {
-      const segments = this.extractBrepFaceBoundarySegments(mesh);
+      const brepFaces = this._brepFaceData?.[meshIdx] || null;
+      meshIdx += 1;
+      const segments = this.extractBrepFaceBoundarySegments(mesh, brepFaces);
       if (segments.length === 0) return;
 
       const geometry = new THREE.BufferGeometry();
