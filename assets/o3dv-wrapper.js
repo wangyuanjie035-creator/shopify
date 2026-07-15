@@ -368,14 +368,42 @@ class O3DVWrapper {
     return null;
   }
 
+  ensureViewAlignedLighting(innerViewer) {
+    const sm = innerViewer?.shadingModel;
+    if (!sm || sm._o3dvViewLightPatched) return;
+
+    sm.UpdateByCamera = (navigationCamera) => {
+      const eye = navigationCamera.eye;
+      const center = navigationCamera.center;
+      const pi = Math.PI;
+
+      // Headlight: key light from camera toward look-at center so the current view is brightest.
+      sm.directionalLight.position.set(eye.x, eye.y, eye.z);
+      sm.directionalLight.target.position.set(center.x, center.y, center.z);
+      sm.directionalLight.target.updateMatrixWorld();
+      sm.directionalLight.color.setHex(0xffffff);
+      sm.directionalLight.intensity = 1.05 * pi;
+
+      sm.ambientLight.color.setHex(0x777777);
+      sm.ambientLight.intensity = 0.4 * pi;
+    };
+    sm._o3dvViewLightPatched = true;
+  }
+
   polishModelAppearance() {
     const innerViewer = this.getInnerViewer();
     if (!innerViewer) return;
+
+    this.ensureViewAlignedLighting(innerViewer);
 
     const viewerMainModel = innerViewer.mainModel;
     if (!viewerMainModel || viewerMainModel.mainModel?.IsEmpty?.()) {
       this.applyFeatureEdges(innerViewer, false, this.options.edgeThreshold ?? 28);
       return;
+    }
+
+    if (typeof viewerMainModel.ClearEdgeModel === 'function') {
+      viewerMainModel.ClearEdgeModel();
     }
 
     viewerMainModel.EnumerateMeshes((obj) => {
