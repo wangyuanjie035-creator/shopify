@@ -2,15 +2,14 @@
  * STEP tessellation override for Online3DViewer / occt-import-js.
  * Must load before o3dv.min.js so Worker postMessage can be patched.
  *
- * Current preset: O3DV default mesh (edges overlay shows triangle stripes).
- * Fine: 0.00025 / 0.12 | Coarse: 0.01 / 1.2
+ * Current preset: fine (smooth CAD preview).
  */
 (function () {
   const STEP_MESH_PARAMS = {
     linearUnit: 'millimeter',
     linearDeflectionType: 'bounding_box_ratio',
-    linearDeflection: 0.001,
-    angularDeflection: 0.5,
+    linearDeflection: 0.00025,
+    angularDeflection: 0.12,
   };
 
   function enhanceStepParams(params) {
