@@ -6,8 +6,8 @@
 /** Brushed aluminum / steel preview */
 const O3DV_SURFACE_COLOR = { r: 181, g: 184, b: 189 };
 const O3DV_SURFACE_HEX = 0xb5b8bd;
-const O3DV_METAL_SPECULAR = 0x999999;
-const O3DV_METAL_SHININESS = 42;
+const O3DV_METAL_SPECULAR = 0xbbbbbb;
+const O3DV_METAL_SHININESS = 52;
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
 
 class O3DVWrapper {
@@ -383,10 +383,10 @@ class O3DVWrapper {
       sm.directionalLight.target.position.set(center.x, center.y, center.z);
       sm.directionalLight.target.updateMatrixWorld();
       sm.directionalLight.color.setHex(0xffffff);
-      sm.directionalLight.intensity = 0.55 * pi;
+      sm.directionalLight.intensity = 0.72 * pi;
 
       sm.ambientLight.color.setHex(0x888888);
-      sm.ambientLight.intensity = 0.48 * pi;
+      sm.ambientLight.intensity = 0.62 * pi;
 
       // Side fill: perpendicular to view axis, lifts cylindrical / fillet sides.
       const vx = center.x - eye.x;
@@ -407,7 +407,7 @@ class O3DVWrapper {
       if (!sm.o3dvSideFill) {
         const LightClass = sm.directionalLight.constructor;
         const TargetClass = sm.directionalLight.target.constructor;
-        sm.o3dvSideFill = new LightClass(0x999999, 0.28 * pi);
+        sm.o3dvSideFill = new LightClass(0x999999, 0.38 * pi);
         sm.o3dvSideFillTarget = new TargetClass();
         sm.scene.add(sm.o3dvSideFillTarget);
         sm.o3dvSideFill.target = sm.o3dvSideFillTarget;
@@ -422,7 +422,7 @@ class O3DVWrapper {
       );
       sm.o3dvSideFillTarget.position.set(center.x, center.y, center.z);
       sm.o3dvSideFill.target.updateMatrixWorld();
-      sm.o3dvSideFill.intensity = 0.28 * pi;
+      sm.o3dvSideFill.intensity = 0.38 * pi;
     };
     sm._o3dvViewLightPatched = true;
   }
