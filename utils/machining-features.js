@@ -1,3 +1,5 @@
+import { buildHoleReviewReasons, deduplicateHoles } from './hole-deduplication.js';
+
 const HOLE_TYPES = new Set([
   'hole_simple',
   'hole_countersunk',
@@ -40,11 +42,15 @@ function normalizeHole(feature) {
     depthSource: depth != null ? 'hole_recognizer_axial' : null,
     isThrough: props.is_through === 1 || props.is_through === true,
     axis: normalizeVector(props.axis),
+    axisOrigin: normalizeVector(props.axisOrigin),
     center: normalizeVector(props.center),
     countersinkDiameter: roundNumber(props.countersink_diameter),
     countersinkAngle: roundNumber(props.countersink_angle),
+    counterboreDiameter: roundNumber(props.counterbore_diameter ?? props.max_diameter),
     boreCount: roundNumber(props.bore_count, 0),
     faceIds: feature.face_ids || [],
+    deduped: false,
+    mergedFrom: [feature.feature_id],
   };
 }
 
@@ -208,7 +214,7 @@ function buildHoleSizeBreakdown(holes) {
   return parts.length ? parts.join(', ') : null;
 }
 
-export function buildFeatureInsights(buckets, topology) {
+export function buildFeatureInsights(buckets, topology, holeDedupStats = null) {
   const holeDiameters = buckets.holes.map((h) => h.diameter).filter((v) => v != null);
   const filletRadii = buckets.fillets.map((f) => f.radius).filter((v) => v != null);
   const cavityDepths = buckets.cavities.map((c) => c.depth).filter((v) => v != null);
@@ -229,6 +235,10 @@ export function buildFeatureInsights(buckets, topology) {
       solidCount: topology?.solids ?? null,
     },
     holes: {
+      rawCount: holeDedupStats?.rawCount ?? buckets.holes.length,
+      dedupedCount: holeDedupStats?.dedupedCount ?? buckets.holes.length,
+      mergedAway: holeDedupStats?.mergedAway ?? 0,
+      axisMissingCount: holeDedupStats?.axisMissingCount ?? 0,
       diameter: buildNumericStats(holeDiameters),
       depth: buildNumericStats(holeDepths),
       sizeBreakdown: buildHoleSizeBreakdown(buckets.holes),
@@ -256,7 +266,7 @@ export function buildFeatureInsights(buckets, topology) {
   };
 }
 
-function buildReviewReasons({ upload, buckets, recognizerErrors }) {
+function buildReviewReasons({ upload, buckets, recognizerErrors, holeDedupStats }) {
   const reasons = [];
   const solids = upload?.topology_stats?.solids ?? 0;
 
@@ -279,6 +289,10 @@ function buildReviewReasons({ upload, buckets, recognizerErrors }) {
 
   if (lowConfidence) {
     reasons.push('low_confidence_features');
+  }
+
+  for (const reason of buildHoleReviewReasons(holeDedupStats)) {
+    if (!reasons.includes(reason)) reasons.push(reason);
   }
 
   return reasons;
@@ -311,6 +325,10 @@ export function buildShopifyDetailAttributes(features) {
 
   push('孔径范围', formatRange(insights.holes.diameter));
   push('孔尺寸分布', insights.holes.sizeBreakdown);
+  if (insights.holes.mergedAway > 0) {
+    push('孔识别原始数', String(insights.holes.rawCount));
+    push('孔去重合并数', String(insights.holes.mergedAway));
+  }
   if (insights.holes.counterboredCount) {
     push('沉头/台阶孔数', String(insights.holes.counterboredCount));
   }
@@ -355,11 +373,15 @@ export function normalizeMachiningFeatures({
   fileSizeBytes,
 }) {
   const buckets = collectFeatures(analysis.results || []);
+  const holeDedup = deduplicateHoles(buckets.holes);
+  buckets.holes = holeDedup.holes;
+
   const recognizerErrors = analysis.errors || [];
   const reviewReasons = buildReviewReasons({
     upload,
     buckets,
     recognizerErrors,
+    holeDedupStats: holeDedup.stats,
   });
 
   let status = 'ok';
@@ -371,10 +393,10 @@ export function normalizeMachiningFeatures({
   }
 
   const topology = upload?.topology_stats || null;
-  const insights = buildFeatureInsights(buckets, topology);
+  const insights = buildFeatureInsights(buckets, topology, holeDedup.stats);
 
   return {
-    schemaVersion: '1.2',
+    schemaVersion: '1.3',
     status,
     statusLabel: statusLabel(status),
     fileName,
@@ -385,11 +407,14 @@ export function normalizeMachiningFeatures({
     topology,
     summary: {
       holeCount: buckets.holes.length,
+      holeCountRaw: holeDedup.stats.rawCount,
+      holesMergedAway: holeDedup.stats.mergedAway,
       shaftCount: buckets.shafts.length,
       filletCount: buckets.fillets.length,
       cavityCount: buckets.cavities.length,
       otherFeatureCount: buckets.other.length,
     },
+    holeDedup: holeDedup.stats,
     insights,
     features: buckets,
     recognizerErrors,
