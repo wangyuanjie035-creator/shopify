@@ -1459,13 +1459,13 @@
     return lower.endsWith('.stp') || lower.endsWith('.step');
   }
 
-  async function analyzeStepMachiningFeatures(apiBase, fileUrl, fileName) {
+  async function analyzeStepMachiningFeatures(apiBase, fileUrl, fileName, attempt = 1) {
     if (!fileUrl || !isStepFile(fileName)) {
       return null;
     }
 
     try {
-      console.log('🔍 STEP 加工特征分析:', fileName);
+      console.log('🔍 STEP 加工特征分析:', fileName, attempt > 1 ? `(重试 ${attempt})` : '');
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 90000);
 
@@ -1481,6 +1481,12 @@
       const json = await resp.json();
       if (!resp.ok || !json.success) {
         const msg = json.message || `HTTP ${resp.status}`;
+        const retryable = attempt < 2 && (resp.status === 503 || /503|隧道离线|non-JSON/i.test(msg));
+        if (retryable) {
+          console.warn('⚠️ 特征分析临时失败，3 秒后重试:', msg);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          return analyzeStepMachiningFeatures(apiBase, fileUrl, fileName, attempt + 1);
+        }
         console.warn('⚠️ 特征分析未成功:', msg);
         return {
           status: 'failed',
@@ -1495,6 +1501,11 @@
       return json;
     } catch (error) {
       const isAbort = error.name === 'AbortError';
+      if (!isAbort && attempt < 2) {
+        console.warn('⚠️ 特征分析请求失败，3 秒后重试:', error.message);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        return analyzeStepMachiningFeatures(apiBase, fileUrl, fileName, attempt + 1);
+      }
       console.warn('⚠️ 特征分析请求失败:', error.message);
       return {
         status: 'failed',

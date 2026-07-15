@@ -37,13 +37,51 @@ function resolveModules(modules) {
     .join(',');
 }
 
+/** Skip ngrok browser interstitial; required for server-to-server calls via ngrok free tier */
+const PALMETTO_FETCH_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+};
+
+function formatNonJsonError(context, status, text) {
+  if (/<!DOCTYPE html/i.test(text) && (status === 503 || status === 502)) {
+    return `${context} failed (${status}): Palmetto/ngrok 隧道离线。请确认 Docker Palmetto 在 8888 端口运行，且 ngrok http 8888 保持开启`;
+  }
+  return `${context} returned non-JSON (${status}): ${text.slice(0, 300)}`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientPalmettoError(error) {
+  const msg = error?.message || '';
+  return /\(502\)|\(503\)|隧道离线|unreachable|ECONNRESET|fetch failed|socket hang up/i.test(msg);
+}
+
+async function withPalmettoRetry(label, fn, attempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientPalmettoError(error) || attempt === attempts - 1) {
+        throw error;
+      }
+      console.warn(`${label} retry ${attempt + 1}/${attempts - 1}:`, error.message);
+      await sleep(2000 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 async function parseJsonResponse(response, context) {
   const text = await response.text();
   let data;
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`${context} returned non-JSON (${response.status}): ${text.slice(0, 300)}`);
+    throw new Error(formatNonJsonError(context, response.status, text));
   }
 
   if (!response.ok) {
@@ -116,14 +154,20 @@ export async function checkPalmettoHealth() {
   ensureConfigured();
   const baseUrl = getBaseUrl();
 
-  const healthResponse = await fetch(`${baseUrl}/health`, { method: 'GET' });
+  const healthResponse = await fetch(`${baseUrl}/health`, {
+    method: 'GET',
+    headers: PALMETTO_FETCH_HEADERS,
+  });
   if (!healthResponse.ok) {
     throw new Error(`Palmetto is unreachable at ${baseUrl} (${healthResponse.status})`);
   }
 
   let engineAvailable = null;
   try {
-    const engineResponse = await fetch(`${baseUrl}/api/analyze/health`, { method: 'GET' });
+    const engineResponse = await fetch(`${baseUrl}/api/analyze/health`, {
+      method: 'GET',
+      headers: PALMETTO_FETCH_HEADERS,
+    });
     if (engineResponse.ok) {
       const engineHealth = await engineResponse.json();
       engineAvailable = engineHealth.available ?? null;
@@ -137,7 +181,10 @@ export async function checkPalmettoHealth() {
 
 export async function listModules() {
   ensureConfigured();
-  const response = await fetch(`${getBaseUrl()}/api/analyze/modules`, { method: 'GET' });
+  const response = await fetch(`${getBaseUrl()}/api/analyze/modules`, {
+    method: 'GET',
+    headers: PALMETTO_FETCH_HEADERS,
+  });
   const data = await parseJsonResponse(response, 'List modules');
   return data.modules || [];
 }
@@ -149,38 +196,43 @@ export async function listRecognizers() {
 }
 
 export async function uploadStepFile(fileBuffer, fileName) {
-  ensureConfigured();
-  const form = new FormData();
-  const blob = new Blob([fileBuffer], { type: 'application/step' });
-  form.append('file', blob, fileName);
+  return withPalmettoRetry('Upload STEP file', async () => {
+    ensureConfigured();
+    const form = new FormData();
+    const blob = new Blob([fileBuffer], { type: 'application/step' });
+    form.append('file', blob, fileName);
 
-  const response = await fetch(`${getBaseUrl()}/api/analyze/upload`, {
-    method: 'POST',
-    body: form,
+    const response = await fetch(`${getBaseUrl()}/api/analyze/upload`, {
+      method: 'POST',
+      headers: PALMETTO_FETCH_HEADERS,
+      body: form,
+    });
+
+    return parseJsonResponse(response, 'Upload STEP file');
   });
-
-  return parseJsonResponse(response, 'Upload STEP file');
 }
 
 export async function processModel(modelId, options = {}) {
-  ensureConfigured();
-  const modules = resolveModules(options.modules || options.recognizers);
+  return withPalmettoRetry('Process model', async () => {
+    ensureConfigured();
+    const modules = resolveModules(options.modules || options.recognizers);
 
-  const response = await fetch(`${getBaseUrl()}/api/analyze/process`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model_id: modelId,
-      modules,
-      analyze_thickness: false,
-      enable_dfm_geometry: false,
-      enable_pocket_depth: true,
-      enable_sdf: false,
-      enable_thickness_heatmap: false,
-    }),
+    const response = await fetch(`${getBaseUrl()}/api/analyze/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...PALMETTO_FETCH_HEADERS },
+      body: JSON.stringify({
+        model_id: modelId,
+        modules,
+        analyze_thickness: false,
+        enable_dfm_geometry: false,
+        enable_pocket_depth: true,
+        enable_sdf: false,
+        enable_thickness_heatmap: false,
+      }),
+    });
+
+    return parseJsonResponse(response, 'Process model');
   });
-
-  return parseJsonResponse(response, 'Process model');
 }
 
 /** @deprecated Use processModel() — recognition runs in one C++ pass now */
