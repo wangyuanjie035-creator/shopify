@@ -3,13 +3,12 @@
  * 专门为model-uploader项目定制的3D查看器包装器
  */
 
-/** CAD-style neutral gray #C5C5C5 with soft specular */
-const O3DV_SURFACE_COLOR = { r: 197, g: 197, b: 197 };
-const O3DV_SURFACE_HEX = 0xc5c5c5;
+/** Brushed aluminum / steel preview */
+const O3DV_SURFACE_COLOR = { r: 181, g: 184, b: 189 };
+const O3DV_SURFACE_HEX = 0xb5b8bd;
+const O3DV_METAL_SPECULAR = 0xeeeeee;
+const O3DV_METAL_SHININESS = 78;
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
-
-/** CAD feature edges: smooth surface + black outline on sharp/boundary edges only */
-const O3DV_CAD_FEATURE_EDGES = true;
 
 class O3DVWrapper {
   constructor(containerId, options = {}) {
@@ -19,7 +18,7 @@ class O3DVWrapper {
       height: 600,
       backgroundColor: O3DV_BACKGROUND,
       defaultColor: O3DV_SURFACE_COLOR,
-      showEdges: O3DV_CAD_FEATURE_EDGES,
+      showEdges: false,
       edgeColor: { r: 0, g: 0, b: 0 },
       edgeThreshold: 28,
       ...options
@@ -373,24 +372,13 @@ class O3DVWrapper {
     const innerViewer = this.getInnerViewer();
     if (!innerViewer) return;
 
-    const showFeatureEdges = this.options.showEdges === true;
-    const edgeThreshold = this.options.edgeThreshold ?? 28;
-
-    const mainModel = innerViewer.mainModel;
-    if (!mainModel || (typeof mainModel.IsEmpty === 'function' && mainModel.IsEmpty())) {
-      this.applyFeatureEdges(innerViewer, showFeatureEdges, edgeThreshold);
+    const viewerMainModel = innerViewer.mainModel;
+    if (!viewerMainModel || viewerMainModel.mainModel?.IsEmpty?.()) {
+      this.applyFeatureEdges(innerViewer, false, this.options.edgeThreshold ?? 28);
       return;
     }
 
-    const specularHex = 0x444444;
-
-    mainModel.Traverse((obj) => {
-      if (obj.isLineSegments || obj.type === 'LineSegments') {
-        obj.visible = false;
-        return;
-      }
-      if (!obj.isMesh || !obj.geometry) return;
-
+    viewerMainModel.EnumerateMeshes((obj) => {
       if (obj.geometry.attributes?.color) {
         obj.geometry.deleteAttribute('color');
       }
@@ -406,11 +394,14 @@ class O3DVWrapper {
         if (material.color && material.color.setHex) {
           material.color.setHex(O3DV_SURFACE_HEX);
         }
+        if (material.emissive && material.emissive.setHex) {
+          material.emissive.setHex(0x000000);
+        }
         if (material.specular && material.specular.setHex) {
-          material.specular.setHex(specularHex);
+          material.specular.setHex(O3DV_METAL_SPECULAR);
         }
         if (typeof material.shininess === 'number') {
-          material.shininess = 28;
+          material.shininess = O3DV_METAL_SHININESS;
         }
         if (typeof material.flatShading !== 'undefined') {
           material.flatShading = false;
@@ -418,14 +409,25 @@ class O3DVWrapper {
         material.needsUpdate = true;
       };
 
+      const materials = new Set();
+      const collect = (material) => {
+        if (material) materials.add(material);
+      };
       if (Array.isArray(obj.material)) {
-        obj.material.forEach(applyMaterial);
+        obj.material.forEach(collect);
       } else {
-        applyMaterial(obj.material);
+        collect(obj.material);
       }
+      if (Array.isArray(obj.userData?.originalMaterials)) {
+        obj.userData.originalMaterials.forEach(collect);
+      }
+      if (Array.isArray(obj.userData?.threeMaterials)) {
+        obj.userData.threeMaterials.forEach(collect);
+      }
+      materials.forEach(applyMaterial);
     });
 
-    this.applyFeatureEdges(innerViewer, showFeatureEdges, edgeThreshold);
+    this.applyFeatureEdges(innerViewer, false, this.options.edgeThreshold ?? 28);
 
     if (typeof innerViewer.Render === 'function') {
       innerViewer.Render();
