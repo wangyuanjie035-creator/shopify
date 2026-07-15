@@ -5,10 +5,8 @@
 
 /** CAD-style neutral gray #C5C5C5 with soft specular */
 const O3DV_SURFACE_COLOR = { r: 197, g: 197, b: 197 };
-/** Target appearance #C5C5C5; diffuse is slightly darker so lit faces don't blow out to white. */
+/** Target appearance #C5C5C5 */
 const O3DV_SURFACE_HEX = 0xc5c5c5;
-const O3DV_DIFFUSE_HEX = 0xadadad;
-const O3DV_RENDERER_EXPOSURE = 0.88;
 const O3DV_BACKGROUND = { r: 245, g: 247, b: 250, a: 255 };
 
 /** CAD feature edges: smooth surface + black outline on sharp/boundary edges only */
@@ -374,21 +372,47 @@ class O3DVWrapper {
     return null;
   }
 
+  ensureFillLightHook(innerViewer) {
+    if (this._fillLightHooked || !innerViewer?.Render) return;
+    const origRender = innerViewer.Render.bind(innerViewer);
+    innerViewer.Render = () => {
+      this.updateFillLight(innerViewer);
+      origRender();
+    };
+    this._fillLightHooked = true;
+  }
+
+  updateFillLight(innerViewer) {
+    const sm = innerViewer?.shadingModel;
+    if (!sm?.o3dvFillLight || !sm.directionalLight) return;
+    const p = sm.directionalLight.position;
+    sm.o3dvFillLight.position.set(-p.x * 0.9, -p.y * 0.45 - 0.25, -p.z * 0.9);
+  }
+
   tunePreviewLighting(innerViewer) {
     if (!innerViewer) return;
 
     const sm = innerViewer.shadingModel;
     const pi = Math.PI;
     if (sm?.ambientLight) {
-      sm.ambientLight.color.setHex(0x888888);
-      sm.ambientLight.intensity = 1.08 * pi;
+      sm.ambientLight.color.setHex(0x999999);
+      // Higher ambient lifts recessed inner walls without darkening the outer cap.
+      sm.ambientLight.intensity = 1.32 * pi;
     }
     if (sm?.directionalLight) {
-      sm.directionalLight.color.setHex(0x707070);
-      sm.directionalLight.intensity = 0.58 * pi;
+      sm.directionalLight.color.setHex(0x888888);
+      sm.directionalLight.intensity = 0.95 * pi;
+    }
+    if (sm?.scene && sm.directionalLight) {
+      if (!sm.o3dvFillLight) {
+        const LightClass = sm.directionalLight.constructor;
+        sm.o3dvFillLight = new LightClass(0x888888, 0.45 * pi);
+        sm.scene.add(sm.o3dvFillLight);
+      }
+      this.updateFillLight(innerViewer);
     }
     if (innerViewer.renderer && 'toneMappingExposure' in innerViewer.renderer) {
-      innerViewer.renderer.toneMappingExposure = O3DV_RENDERER_EXPOSURE;
+      innerViewer.renderer.toneMappingExposure = 1.0;
     }
   }
 
@@ -396,6 +420,7 @@ class O3DVWrapper {
     const innerViewer = this.getInnerViewer();
     if (!innerViewer) return;
 
+    this.ensureFillLightHook(innerViewer);
     this.tunePreviewLighting(innerViewer);
 
     const showFeatureEdges = this.options.showEdges === true;
@@ -423,7 +448,7 @@ class O3DVWrapper {
           material.vertexColors = false;
         }
         if (material.color && material.color.setHex) {
-          material.color.setHex(O3DV_DIFFUSE_HEX);
+          material.color.setHex(O3DV_SURFACE_HEX);
         }
         if (material.emissive && material.emissive.setHex) {
           material.emissive.setHex(0x000000);
