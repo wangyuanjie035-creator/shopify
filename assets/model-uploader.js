@@ -3379,11 +3379,11 @@
     if (typeof O3DVWrapper !== 'undefined' && typeof OV !== 'undefined') {
       try {
         o3dvWrapper = new O3DVWrapper('viewer-container', {
-          width: 800,
-          height: 600,
-          backgroundColor: { r: 248, g: 249, b: 250, a: 255 },
-          defaultColor: { r: 25, g: 118, b: 210 },
-          showEdges: false
+          backgroundColor: { r: 245, g: 247, b: 250, a: 255 },
+          defaultColor: { r: 197, g: 197, b: 197 },
+          showEdges: true,
+          edgeColor: { r: 0, g: 0, b: 0 },
+          edgeThreshold: 28,
         });
         
         useAdvancedViewer = true;
