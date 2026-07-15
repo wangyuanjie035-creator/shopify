@@ -375,6 +375,7 @@ class O3DVWrapper {
     sm.UpdateByCamera = (navigationCamera) => {
       const eye = navigationCamera.eye;
       const center = navigationCamera.center;
+      const up = navigationCamera.up || { x: 0, y: 1, z: 0 };
       const pi = Math.PI;
 
       // Headlight: key light from camera toward look-at center so the current view is brightest.
@@ -386,6 +387,42 @@ class O3DVWrapper {
 
       sm.ambientLight.color.setHex(0x888888);
       sm.ambientLight.intensity = 0.62 * pi;
+
+      // Side fill: perpendicular to view axis, lifts cylindrical / fillet sides.
+      const vx = center.x - eye.x;
+      const vy = center.y - eye.y;
+      const vz = center.z - eye.z;
+      const vlen = Math.hypot(vx, vy, vz) || 1;
+      const vnx = vx / vlen;
+      const vny = vy / vlen;
+      const vnz = vz / vlen;
+      let sx = vny * up.z - vnz * up.y;
+      let sy = vnz * up.x - vnx * up.z;
+      let sz = vnx * up.y - vny * up.x;
+      const slen = Math.hypot(sx, sy, sz) || 1;
+      sx /= slen;
+      sy /= slen;
+      sz /= slen;
+
+      if (!sm.o3dvSideFill) {
+        const LightClass = sm.directionalLight.constructor;
+        const TargetClass = sm.directionalLight.target.constructor;
+        sm.o3dvSideFill = new LightClass(0x999999, 0.38 * pi);
+        sm.o3dvSideFillTarget = new TargetClass();
+        sm.scene.add(sm.o3dvSideFillTarget);
+        sm.o3dvSideFill.target = sm.o3dvSideFillTarget;
+        sm.scene.add(sm.o3dvSideFill);
+      }
+
+      const sideDistance = 120;
+      sm.o3dvSideFill.position.set(
+        center.x + sx * sideDistance,
+        center.y + sy * sideDistance + sideDistance * 0.12,
+        center.z + sz * sideDistance
+      );
+      sm.o3dvSideFillTarget.position.set(center.x, center.y, center.z);
+      sm.o3dvSideFill.target.updateMatrixWorld();
+      sm.o3dvSideFill.intensity = 0.38 * pi;
     };
     sm._o3dvViewLightPatched = true;
   }
