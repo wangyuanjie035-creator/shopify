@@ -22,28 +22,24 @@
     };
   }
 
-  /** Imperceptible per-face tint so O3DV assigns one material per B-rep face (for boundary edges). */
-  function assignUniqueBrepFaceColors(meshes) {
-    if (!Array.isArray(meshes)) return;
-    const base = 197;
-    meshes.forEach((mesh, meshIdx) => {
-      if (!Array.isArray(mesh.brep_faces)) return;
-      mesh.brep_faces.forEach((face, faceIdx) => {
-        const slot = meshIdx * 4096 + faceIdx;
-        face.color = [
-          (base + (slot % 5)) / 255,
-          (base + ((slot >> 4) % 5)) / 255,
-          (base + ((slot >> 8) % 5)) / 255,
-        ];
-      });
-    });
+  /** Cache B-rep face triangle ranges for feature-edge overlay (no per-face color tint). */
+  function cacheBrepFaceData(meshes) {
+    if (!Array.isArray(meshes)) {
+      window.__O3DV_BREP_FACE_DATA__ = null;
+      return;
+    }
+    window.__O3DV_BREP_FACE_DATA__ = meshes.map((mesh) =>
+      Array.isArray(mesh.brep_faces)
+        ? mesh.brep_faces.map((face) => ({ first: face.first, last: face.last }))
+        : []
+    );
   }
 
   function wrapOcctResultListener(listener) {
     return function onOcctWorkerMessage(ev) {
       const data = ev && ev.data;
       if (data && data.success && Array.isArray(data.meshes)) {
-        assignUniqueBrepFaceColors(data.meshes);
+        cacheBrepFaceData(data.meshes);
       }
       return listener.call(this, ev);
     };
