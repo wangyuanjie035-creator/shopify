@@ -108,6 +108,7 @@ export default async function handler(req, res) {
       fileName,
       upload: raw.upload,
       analysis: raw.analysis,
+      aag: raw.aag,
       fileSizeBytes: raw.fileSizeBytes,
     });
 

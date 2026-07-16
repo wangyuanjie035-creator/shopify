@@ -176,6 +176,99 @@ function formatRange(stats, unit = 'mm') {
   return `${stats.min}–${stats.max} ${unit}`;
 }
 
+export function extractWorkpieceGeometryFromAag(aagData) {
+  const solids = aagData?.assembly_info?.solids || [];
+  if (!solids.length) return null;
+
+  let totalVolume = 0;
+  let totalSurfaceArea = 0;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+
+  for (const solid of solids) {
+    if (typeof solid.volume === 'number' && !Number.isNaN(solid.volume)) {
+      totalVolume += solid.volume;
+    }
+    if (typeof solid.surface_area === 'number' && !Number.isNaN(solid.surface_area)) {
+      totalSurfaceArea += solid.surface_area;
+    }
+
+    const bbox = solid.bbox;
+    if (!bbox?.min || !bbox?.max) continue;
+
+    minX = Math.min(minX, bbox.min[0]);
+    minY = Math.min(minY, bbox.min[1]);
+    minZ = Math.min(minZ, bbox.min[2]);
+    maxX = Math.max(maxX, bbox.max[0]);
+    maxY = Math.max(maxY, bbox.max[1]);
+    maxZ = Math.max(maxZ, bbox.max[2]);
+  }
+
+  if (!Number.isFinite(minX)) return null;
+
+  const lengthX = maxX - minX;
+  const lengthY = maxY - minY;
+  const lengthZ = maxZ - minZ;
+  const sortedDims = [lengthX, lengthY, lengthZ].sort((a, b) => b - a);
+
+  return {
+    bbox: {
+      min: [roundNumber(minX), roundNumber(minY), roundNumber(minZ)],
+      max: [roundNumber(maxX), roundNumber(maxY), roundNumber(maxZ)],
+    },
+    dimensions: {
+      length: roundNumber(sortedDims[0]),
+      width: roundNumber(sortedDims[1]),
+      height: roundNumber(sortedDims[2]),
+      axisX: roundNumber(lengthX),
+      axisY: roundNumber(lengthY),
+      axisZ: roundNumber(lengthZ),
+    },
+    volumeMm3: roundNumber(totalVolume),
+    surfaceAreaMm2: roundNumber(totalSurfaceArea),
+    bboxVolumeMm3: roundNumber(lengthX * lengthY * lengthZ),
+    solidCount: solids.length,
+    isAssembly: aagData?.assembly_info?.is_assembly === true || solids.length > 1,
+    source: 'palmetto_aag',
+  };
+}
+
+export function buildWorkpieceGeometryFromPreview(dimensions) {
+  if (!dimensions) return null;
+
+  const width = roundNumber(Number(dimensions.width));
+  const height = roundNumber(Number(dimensions.height));
+  const depth = roundNumber(Number(dimensions.depth));
+  if (width == null || height == null || depth == null) return null;
+
+  const sortedDims = [width, height, depth].sort((a, b) => b - a);
+
+  return {
+    dimensions: {
+      length: sortedDims[0],
+      width: sortedDims[1],
+      height: sortedDims[2],
+      axisX: width,
+      axisY: height,
+      axisZ: depth,
+    },
+    bboxVolumeMm3: roundNumber(width * height * depth),
+    source: 'o3dv_preview',
+  };
+}
+
+function formatWorkpieceDimensions(workpiece) {
+  const dims = workpiece?.dimensions;
+  if (!dims) return null;
+  const parts = [dims.length, dims.width, dims.height].filter((v) => v != null);
+  if (parts.length !== 3) return null;
+  return `${parts[0]} x ${parts[1]} x ${parts[2]} mm`;
+}
+
 function buildFilletDistribution(fillets) {
   const groups = new Map();
   for (const fillet of fillets) {
@@ -318,6 +411,26 @@ export function buildShopifyDetailAttributes(features) {
     attrs.push({ key, value: text.length > 250 ? `${text.slice(0, 247)}...` : text });
   };
 
+  const workpiece = features.workpiece;
+  if (workpiece) {
+    push('工件尺寸', formatWorkpieceDimensions(workpiece));
+    if (workpiece.volumeMm3 != null) {
+      push('工件体积', `${workpiece.volumeMm3} mm³`);
+    }
+    if (workpiece.bboxVolumeMm3 != null) {
+      push('包络体积', `${workpiece.bboxVolumeMm3} mm³`);
+    }
+    if (workpiece.surfaceAreaMm2 != null) {
+      push('工件表面积', `${workpiece.surfaceAreaMm2} mm²`);
+    }
+    if (workpiece.isAssembly) {
+      push('实体数量', String(workpiece.solidCount ?? 1));
+    }
+    if (workpiece.source) {
+      push('几何数据来源', workpiece.source === 'palmetto_aag' ? 'Palmetto CAD' : '3D预览估算');
+    }
+  }
+
   const topo = insights.topology;
   if (topo.faceCount != null) push('模型面数', String(topo.faceCount));
   if (topo.edgeCount != null) push('模型边数', String(topo.edgeCount));
@@ -370,6 +483,8 @@ export function normalizeMachiningFeatures({
   fileName,
   upload,
   analysis,
+  aag,
+  previewDimensions,
   fileSizeBytes,
 }) {
   const buckets = collectFeatures(analysis.results || []);
@@ -394,9 +509,11 @@ export function normalizeMachiningFeatures({
 
   const topology = upload?.topology_stats || null;
   const insights = buildFeatureInsights(buckets, topology, holeDedup.stats);
+  const workpiece = extractWorkpieceGeometryFromAag(aag)
+    || buildWorkpieceGeometryFromPreview(previewDimensions);
 
   return {
-    schemaVersion: '1.3',
+    schemaVersion: '1.4',
     status,
     statusLabel: statusLabel(status),
     fileName,
@@ -405,6 +522,7 @@ export function normalizeMachiningFeatures({
     analyzedAt: new Date().toISOString(),
     executionMs: analysis.executionMs ?? null,
     topology,
+    workpiece,
     summary: {
       holeCount: buckets.holes.length,
       holeCountRaw: holeDedup.stats.rawCount,
@@ -413,6 +531,8 @@ export function normalizeMachiningFeatures({
       filletCount: buckets.fillets.length,
       cavityCount: buckets.cavities.length,
       otherFeatureCount: buckets.other.length,
+      workpieceVolumeMm3: workpiece?.volumeMm3 ?? null,
+      bboxVolumeMm3: workpiece?.bboxVolumeMm3 ?? null,
     },
     holeDedup: holeDedup.stats,
     insights,
@@ -428,6 +548,14 @@ export function serializeMachiningFeaturesForShopify(features) {
     schemaVersion: features.schemaVersion,
     status: features.status,
     summary: features.summary,
+    workpiece: features.workpiece
+      ? {
+          dimensions: features.workpiece.dimensions,
+          volumeMm3: features.workpiece.volumeMm3,
+          bboxVolumeMm3: features.workpiece.bboxVolumeMm3,
+          source: features.workpiece.source,
+        }
+      : undefined,
     insights: {
       topology: features.insights?.topology,
       holes: {

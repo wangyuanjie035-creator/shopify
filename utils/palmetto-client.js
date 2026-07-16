@@ -262,6 +262,15 @@ export async function recognizeFeatures(modelId, recognizer, parameters = {}) {
   return processModel(modelId, { modules: [recognizer], ...parameters });
 }
 
+export async function fetchArtifactJson(modelId, filename) {
+  ensureConfigured();
+  const response = await fetch(`${getBaseUrl()}/api/analyze/${modelId}/artifacts/${filename}`, {
+    method: 'GET',
+    headers: PALMETTO_FETCH_HEADERS,
+  });
+  return parseJsonResponse(response, `Fetch artifact ${filename}`);
+}
+
 export async function deleteModel(modelId) {
   ensureConfigured();
   try {
@@ -378,12 +387,20 @@ export async function analyzeStepInput({
         }
       : (upload?.topology_stats || analysis.metadata?.topology || null);
 
+    let aag = null;
+    try {
+      aag = await fetchArtifactJson(modelId, 'aag.json');
+    } catch (error) {
+      console.warn('Failed to fetch AAG artifact for workpiece geometry:', error.message);
+    }
+
     return {
       upload: {
         ...upload,
         topology_stats: topologyStats,
       },
       analysis,
+      aag,
       fileSizeBytes: fileBuffer.length,
     };
   } finally {

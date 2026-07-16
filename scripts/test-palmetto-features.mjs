@@ -40,6 +40,7 @@ async function runDirect() {
     fileName,
     upload: raw.upload,
     analysis: raw.analysis,
+    aag: raw.aag,
     fileSizeBytes: raw.fileSizeBytes,
   });
 }
@@ -72,6 +73,7 @@ async function main() {
   console.log('\n=== Feature Analysis Result ===');
   console.log(JSON.stringify(features, null, 2));
   console.log('\nSummary:', features.summary);
+  console.log('Workpiece:', features.workpiece);
   console.log('Status:', features.status);
   console.log('Requires manual review:', features.requiresManualReview);
   if (features.reviewReasons.length > 0) {
