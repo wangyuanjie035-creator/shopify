@@ -55,6 +55,42 @@ async function shopifyGraphql(storeDomain, accessToken, query, variables) {
   return response.json();
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isStagedUploadUrl(url) {
+  return typeof url === 'string' && url.includes('shopify-staged-uploads.storage.googleapis.com');
+}
+
+async function waitForPermanentFileUrl(fileGid, storeDomain, accessToken, maxAttempts = 12) {
+  const query = `
+    query getFile($id: ID!) {
+      node(id: $id) {
+        ... on GenericFile {
+          url
+          fileStatus
+        }
+      }
+    }
+  `;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const data = await shopifyGraphql(storeDomain, accessToken, query, { id: fileGid });
+    const node = data?.data?.node;
+    const url = node?.url;
+    const status = node?.fileStatus;
+
+    if (url && status === 'READY' && !isStagedUploadUrl(url)) {
+      return url;
+    }
+
+    await sleep(1000);
+  }
+
+  return null;
+}
+
 export function resolveStagedUploadTypes(fileType, fileName) {
   const contentCategory = determineContentCategory(fileType, fileName);
   const mimeType = determineMimeType(fileType, fileName);
@@ -210,7 +246,14 @@ export async function finalizeShopifyFileUpload({
   }
 
   const fileRecord = createdFiles[0];
-  const shopifyFileUrl = fileRecord.url || stagedTarget.resourceUrl;
+  let shopifyFileUrl = fileRecord.url || stagedTarget.resourceUrl;
+
+  if (!fileRecord.url || isStagedUploadUrl(shopifyFileUrl)) {
+    const permanentUrl = await waitForPermanentFileUrl(fileRecord.id, storeDomain, accessToken);
+    if (permanentUrl) {
+      shopifyFileUrl = permanentUrl;
+    }
+  }
   const shopifyFileSize = fileRecord.originalFileSize || fileSize;
   const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
