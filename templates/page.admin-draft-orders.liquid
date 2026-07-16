@@ -686,6 +686,15 @@
 
   // API配置
   const API_BASE = 'https://shopify-13s4.vercel.app/api';
+
+  const HIDDEN_ATTRIBUTE_KEYS = new Set([
+    '加工特征摘要', '估价明细', '_uuid',
+    'Order Type', '文件类型', '文件ID', 'Shopify文件ID', 'Shopify文件URL', '原始文件大小', 'Quote Status',
+  ]);
+
+  function filterVisibleAttributes(attrs) {
+    return (attrs || []).filter((attr) => attr?.key && !HIDDEN_ATTRIBUTE_KEYS.has(attr.key));
+  }
   
   // 全局变量
   let currentOrders = [];
@@ -823,7 +832,7 @@
         ${order.lineItems?.[0]?.customAttributes ? `
         <div class="order-params">
           ${(() => {
-            const customAttributes = order.lineItems[0].customAttributes;
+            const customAttributes = filterVisibleAttributes(order.lineItems[0].customAttributes);
             const params = [];
             
             // 按客户上传界面的顺序显示参数
@@ -836,6 +845,13 @@
               { key: '包络体积', label: '包络体积' },
               { key: '工件表面积', label: '工件表面积' },
               { key: '自动估价', label: '自动估价' },
+              { key: '材料牌号', label: '材料牌号' },
+              { key: '材料费', label: '材料费' },
+              { key: '材料单价', label: '材料单价' },
+              { key: '材料加工系数', label: '材料系数' },
+              { key: '开机费', label: '开机费' },
+              { key: '特征加工费', label: '特征加工' },
+              { key: '零件体积', label: '零件体积' },
               { key: '加工工艺费', label: '加工工艺费' },
               { key: '加工时长费', label: '加工时长费' },
               { key: '预估加工时长', label: '加工时长' },

@@ -2,7 +2,7 @@
  * 简化版获取 Draft Order API - 避免权限问题
  */
 
-// 辅助函数：调用 Shopify GraphQL API
+import { stripHiddenDraftOrderAttributes } from '../utils/draft-order-attrs.js';
 async function shopGql(query, variables) {
   const storeDomain = process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOP;
   const accessToken = process.env.SHOPIFY_ACCESS_TOKEN || process.env.ADMIN_TOKEN;
@@ -206,7 +206,7 @@ const adminWhitelist = (process.env.ADMIN_EMAIL_WHITELIST || 'jonathan.wang@sain
           quantity: item.quantity,
           originalUnitPrice: item.originalUnitPrice,
           price: item.originalUnitPrice, // 兼容性字段
-          customAttributes: item.customAttributes
+          customAttributes: stripHiddenDraftOrderAttributes(item.customAttributes),
         })),
         
         // 文件信息（向后兼容）

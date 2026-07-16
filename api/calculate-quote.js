@@ -41,6 +41,7 @@ export default async function handler(req, res) {
     const {
       features,
       material,
+      materialCategory,
       finishing,
       surfaceTreatment,
       quantity = 1,
@@ -58,6 +59,7 @@ export default async function handler(req, res) {
     const quote = estimateQuote({
       features,
       material,
+      materialCategory,
       finishing: finishing || surfaceTreatment,
       quantity,
       rates,

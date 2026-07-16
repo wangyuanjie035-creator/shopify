@@ -1561,9 +1561,6 @@
     if (Array.isArray(features.reviewReasons) && features.reviewReasons.length > 0) {
       attrs.push({ key: '复核原因', value: features.reviewReasons.join(', ') });
     }
-    if (analysisResult.shopifySummary) {
-      attrs.push({ key: '加工特征摘要', value: analysisResult.shopifySummary });
-    }
 
     const detailAttrs = analysisResult.shopifyDetailAttributes || [];
     for (const item of detailAttrs) {
@@ -1597,6 +1594,7 @@
         body: JSON.stringify({
           features: featureAnalysis.features,
           material: config.material,
+          materialCategory: config.materialCategory,
           finishing: surfaceText,
           quantity,
         }),
@@ -1618,11 +1616,7 @@
 
   function buildQuoteAttributes(quoteResult) {
     if (!quoteResult) return [];
-    const attrs = [...(quoteResult.shopifyAttributes || [])];
-    if (quoteResult.shopifySummary) {
-      attrs.push({ key: '估价明细', value: quoteResult.shopifySummary });
-    }
-    return attrs;
+    return [...(quoteResult.shopifyAttributes || [])];
   }
 
   // 检查3D文件是否有对应的2D文件
@@ -2083,7 +2077,6 @@
           { key: '原始文件大小', value: String(threeDMeta.originalFileSize || fileData.file.size) },
           ...machiningAttrs,
           ...quoteAttrs,
-          { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
         ],
       });
 
@@ -2120,7 +2113,6 @@
             { key: 'Shopify文件ID', value: twoDMeta.shopifyFileId },
             { key: 'Shopify文件URL', value: twoDMeta.shopifyFileUrl },
             { key: '原始文件大小', value: String(twoDMeta.originalFileSize || twoDData.file.size) },
-            { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
           ],
         });
       }

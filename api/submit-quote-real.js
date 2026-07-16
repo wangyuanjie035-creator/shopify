@@ -11,6 +11,8 @@
  * - 返回可被管理端查询的Draft Order ID
  */
 
+import { HIDDEN_DRAFT_ORDER_ATTR_KEYS } from '../utils/draft-order-attrs.js';
+
 /**
  * 请求示例：
  * POST /api/submit-quote-real
@@ -117,6 +119,7 @@ export default async function handler(req, res) {
 
         attrs.forEach((a) => {
           if (!a || !a.key) return;
+          if (HIDDEN_DRAFT_ORDER_ATTR_KEYS.has(a.key)) return;
           const v = normalize(a.value, '');
           if (v.length > 20000) {
             console.warn('⚠️ 跳过过长自定义字段:', a.key, '长度:', v.length);

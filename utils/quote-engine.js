@@ -1,48 +1,64 @@
 /**
- * CNC 自动报价引擎 v1.1
+ * CNC 自动报价引擎 v1.2
  *
- * 价格结构（四块）：
- *   总价 = 加工工艺费 + 加工时长费 + 运费 + 税费
- *   税费 = (加工工艺费 + 加工时长费 + 运费) × 13%
+ * 总价 = 加工工艺费 + 加工时长费 + 运费 + 税费
  *
- * 表面处理（若选择）计入加工工艺费；「无需表面处理」不计费。
+ * 加工工艺费 = 材料费 + 开机/setup + 特征工序(孔/圆角/轴/型腔) + 表面处理
+ * 加工时长费 = 去除体积加工 + 零件复杂度(包络/面数)，× 材料加工系数
  */
 
 export const TAX_RATE = 0.13;
 export const SHIPPING_CNY = 4;
 
-/** 材料密度 g/cm³ */
-export const MATERIAL_DENSITY = {
-  '铝合金-6061': 2.7,
-  '铝合金-7075': 2.81,
-  '6061铝': 2.7,
-  '6061': 2.7,
-  '黄铜-H59': 8.5,
-  'H59黄铜': 8.5,
-  'H59': 8.5,
-  '紫铜-T2': 8.96,
-  '304不锈钢': 7.93,
-  '316不锈钢': 8.0,
+/**
+ * 材料画像：密度、单价、大类、加工难度系数
+ * - removalFactor：去除/体积加工时长系数（塑料低、不锈钢/黄铜高）
+ * - featureFactor：孔/圆角等工序系数
+ * - machiningFactor：材料对「开机+工序+时长」的整体难度系数（不含材料费本身）
+ */
+export const MATERIAL_PROFILES = {
+  '铝合金-6061': { category: '铝合金', density: 2.7, pricePerKg: 28, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.0 },
+  '6061铝': { category: '铝合金', density: 2.7, pricePerKg: 28, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.0 },
+  '6061': { category: '铝合金', density: 2.7, pricePerKg: 28, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.0 },
+  '铝合金-7075': { category: '铝合金', density: 2.81, pricePerKg: 35, removalFactor: 1.05, featureFactor: 1.0, machiningFactor: 1.05 },
+  '黄铜-H59': { category: '铜合金', density: 8.5, pricePerKg: 65, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.8 },
+  'H59黄铜': { category: '铜合金', density: 8.5, pricePerKg: 65, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.8 },
+  'H59': { category: '铜合金', density: 8.5, pricePerKg: 65, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.8 },
+  '紫铜-T2': { category: '铜合金', density: 8.96, pricePerKg: 70, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.85 },
+  '45#钢': { category: '合金钢', density: 7.85, pricePerKg: 8.5, removalFactor: 1.08, featureFactor: 1.0, machiningFactor: 1.1 },
+  'SUS304': { category: '不锈钢', density: 7.93, pricePerKg: 25, removalFactor: 1.1, featureFactor: 1.0, machiningFactor: 1.15 },
+  '304不锈钢': { category: '不锈钢', density: 7.93, pricePerKg: 25, removalFactor: 1.1, featureFactor: 1.0, machiningFactor: 1.15 },
+  '316不锈钢': { category: '不锈钢', density: 8.0, pricePerKg: 32, removalFactor: 1.12, featureFactor: 1.0, machiningFactor: 1.18 },
+  '工程塑料-ABS（白色）': { category: '塑料', density: 1.05, pricePerKg: 16, removalFactor: 0.85, featureFactor: 0.7, machiningFactor: 0.52 },
+  '工程塑料-ABS（黑色）': { category: '塑料', density: 1.05, pricePerKg: 16, removalFactor: 0.85, featureFactor: 0.7, machiningFactor: 0.52 },
+  '赛钢-POM（白色）': { category: '塑料', density: 1.41, pricePerKg: 22, removalFactor: 0.9, featureFactor: 0.72, machiningFactor: 0.55 },
+  '赛钢-POM（黑色）': { category: '塑料', density: 1.41, pricePerKg: 22, removalFactor: 0.9, featureFactor: 0.72, machiningFactor: 0.55 },
+  '电木（黑色）': { category: '塑料', density: 1.45, pricePerKg: 18, removalFactor: 0.8, featureFactor: 0.65, machiningFactor: 0.48 },
+  '电木（橘黄色）': { category: '塑料', density: 1.45, pricePerKg: 18, removalFactor: 0.8, featureFactor: 0.65, machiningFactor: 0.48 },
+  '亚克力': { category: '塑料', density: 1.19, pricePerKg: 20, removalFactor: 0.75, featureFactor: 0.6, machiningFactor: 0.45 },
+  '环氧板-FR4（绿色）': { category: '塑料', density: 1.85, pricePerKg: 24, removalFactor: 0.7, featureFactor: 0.6, machiningFactor: 0.42 },
+  '尼龙-PA6（白色）': { category: '塑料', density: 1.14, pricePerKg: 28, removalFactor: 0.88, featureFactor: 0.72, machiningFactor: 0.54 },
+  '聚碳酸酯-PC': { category: '塑料', density: 1.2, pricePerKg: 26, removalFactor: 0.82, featureFactor: 0.65, machiningFactor: 0.5 },
 };
 
-/** 材料单价 ¥/kg（毛坯采购估算） */
-export const MATERIAL_PRICE_PER_KG = {
-  '铝合金-6061': 28,
-  '铝合金-7075': 35,
-  '6061铝': 28,
-  '6061': 28,
-  '黄铜-H59': 65,
-  'H59黄铜': 65,
-  'H59': 65,
-  '紫铜-T2': 70,
-  '304不锈钢': 25,
-  '316不锈钢': 32,
+const CATEGORY_DEFAULTS = {
+  '铝合金': { density: 2.7, pricePerKg: 28, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.0 },
+  '塑料': { density: 1.2, pricePerKg: 20, removalFactor: 0.85, featureFactor: 0.68, machiningFactor: 0.52 },
+  '铜合金': { density: 8.5, pricePerKg: 65, removalFactor: 1.0, featureFactor: 1.0, machiningFactor: 1.8 },
+  '合金钢': { density: 7.85, pricePerKg: 8.5, removalFactor: 1.08, featureFactor: 1.0, machiningFactor: 1.1 },
+  '不锈钢': { density: 7.93, pricePerKg: 25, removalFactor: 1.1, featureFactor: 1.0, machiningFactor: 1.15 },
 };
 
-/** 4 单历史订单校准系数 */
+/** @deprecated 兼容旧引用 */
+export const MATERIAL_DENSITY = Object.fromEntries(
+  Object.entries(MATERIAL_PROFILES).map(([k, v]) => [k, v.density])
+);
+export const MATERIAL_PRICE_PER_KG = Object.fromEntries(
+  Object.entries(MATERIAL_PROFILES).map(([k, v]) => [k, v.pricePerKg])
+);
+
 export const DEFAULT_QUOTE_RATES = {
   setupCny: 40,
-  /** 去除体积 cm³（包络 − 零件） */
   removalPerCm3: 0.58,
   partVolumePerCm3: 0.03,
   bboxThresholdCm3: 200,
@@ -53,16 +69,58 @@ export const DEFAULT_QUOTE_RATES = {
   counterboredPremium: 1.2,
   filletEach: 0.9,
   filletCap: 12,
+  cavityEach: 35,
   shaftEach: 26,
   faceThreshold: 55,
   faceRate: 0.18,
-  materialFactorDefault: 1.0,
-  materialFactorBrass: 1.8,
   finishingAnodize: 50,
   finishingSandblastAnodize: 50,
-  /** 用于由「加工时长费」反推分钟数 */
   machiningHourlyCny: 150,
 };
+
+function roundMoney(value) {
+  return Math.round(value * 100) / 100;
+}
+
+export function normalizeMaterialKey(material) {
+  const text = String(material || '').trim();
+  if (!text) return '6061铝';
+  if (MATERIAL_PROFILES[text]) return text;
+  if (/6061|铝合金-6061/.test(text)) return '6061铝';
+  if (/7075/.test(text)) return '铝合金-7075';
+  if (/黄铜|H59/i.test(text)) return 'H59黄铜';
+  if (/紫铜|T2/i.test(text)) return '紫铜-T2';
+  if (/304|SUS304/i.test(text)) return 'SUS304';
+  if (/316/.test(text)) return '316不锈钢';
+  if (/45.*钢|45#/.test(text)) return '45#钢';
+  if (/ABS.*白/.test(text)) return '工程塑料-ABS（白色）';
+  if (/ABS.*黑/.test(text)) return '工程塑料-ABS（黑色）';
+  if (/POM.*白/.test(text)) return '赛钢-POM（白色）';
+  if (/POM.*黑/.test(text)) return '赛钢-POM（黑色）';
+  if (/电木.*黑/.test(text)) return '电木（黑色）';
+  if (/电木.*橘/.test(text)) return '电木（橘黄色）';
+  if (/FR4|环氧/.test(text)) return '环氧板-FR4（绿色）';
+  if (/PA6|尼龙/.test(text)) return '尼龙-PA6（白色）';
+  if (/PC|聚碳酸酯/.test(text)) return '聚碳酸酯-PC';
+  if (/亚克力/.test(text)) return '亚克力';
+  return text;
+}
+
+export function resolveMaterialProfile(material, materialCategory) {
+  const key = normalizeMaterialKey(material);
+  if (MATERIAL_PROFILES[key]) {
+    return { key, label: material || key, ...MATERIAL_PROFILES[key] };
+  }
+
+  const category = materialCategory || '铝合金';
+  const defaults = CATEGORY_DEFAULTS[category] || CATEGORY_DEFAULTS['铝合金'];
+  return {
+    key,
+    label: material || key,
+    category,
+    ...defaults,
+  };
+}
 
 export function isNoSurfaceTreatment(finishing) {
   const text = String(finishing || '').trim();
@@ -77,24 +135,8 @@ export function estimateFinishingFee(finishing, rates) {
   if (/喷砂.*阳极|阳极.*喷砂/.test(text)) return rates.finishingSandblastAnodize;
   if (/阳极/.test(text)) return rates.finishingAnodize;
   if (/喷砂/.test(text)) return rates.finishingSandblastAnodize * 0.6;
-  if (/电镀|喷涂|氧化|抛光|拉丝|喷漆|烤漆|丝印|激光打标|UV打印/.test(text)) return 35;
+  if (/电镀|喷涂|氧化|抛光|拉丝|喷漆|烤漆|丝印|激光打标|UV打印|喷油/.test(text)) return 35;
   return 0;
-}
-
-function roundMoney(value) {
-  return Math.round(value * 100) / 100;
-}
-
-export function normalizeMaterialKey(material) {
-  const text = String(material || '').trim();
-  if (!text) return '6061铝';
-  if (MATERIAL_DENSITY[text]) return text;
-  if (/6061|铝合金/.test(text)) return '6061铝';
-  if (/黄铜|H59/i.test(text)) return 'H59黄铜';
-  if (/7075/.test(text)) return '铝合金-7075';
-  if (/304/.test(text)) return '304不锈钢';
-  if (/316/.test(text)) return '316不锈钢';
-  return text;
 }
 
 export function parseHoleBreakdown(sizeBreakdown, holeInsights = {}) {
@@ -193,19 +235,67 @@ function estimateMachiningMinutes(durationCost, rates) {
   return roundMoney(durationCost / perMinute);
 }
 
+function computeFeatureCost(feature, rates, featureFactor) {
+  let cost = 0;
+  cost += feature.small * rates.smallHole;
+  cost += feature.standard * rates.standardHole;
+  cost += feature.large * rates.largeHole;
+  cost += feature.counterbored * rates.counterboredPremium;
+  cost += Math.min(feature.filletCount, rates.filletCap) * rates.filletEach;
+  cost += feature.cavityCount * rates.cavityEach;
+  cost += feature.shaftCount * rates.shaftEach;
+  return roundMoney(cost * featureFactor);
+}
+
+function computeDurationCost(geometry, feature, rates, removalFactor) {
+  let removalCost = 0;
+  let complexityCost = 0;
+
+  if (geometry.removalCm3 != null) {
+    removalCost += geometry.removalCm3 * rates.removalPerCm3 * removalFactor;
+  }
+  if (geometry.volumeCm3 != null) {
+    removalCost += geometry.volumeCm3 * rates.partVolumePerCm3 * removalFactor;
+  }
+  if (geometry.bboxCm3 != null && geometry.bboxCm3 > rates.bboxThresholdCm3) {
+    complexityCost += (geometry.bboxCm3 - rates.bboxThresholdCm3) * rates.bboxPremiumPerCm3 * removalFactor;
+  }
+  if (feature.faceCount != null && feature.faceCount > rates.faceThreshold) {
+    complexityCost += (feature.faceCount - rates.faceThreshold) * rates.faceRate * removalFactor;
+  }
+
+  return {
+    removalCost: roundMoney(removalCost),
+    complexityCost: roundMoney(complexityCost),
+    total: roundMoney(removalCost + complexityCost),
+  };
+}
+
+function buildProcessDetail(materialCost, setupCost, featureCost, finishingFee, material) {
+  const parts = [
+    `材料¥${materialCost}`,
+    `开机¥${setupCost}`,
+    `工序¥${featureCost}`,
+  ];
+  if (finishingFee > 0) parts.push(`表面¥${finishingFee}`);
+  return `${parts.join('+')} (${material.category}/${material.key} 加工×${material.machiningFactor})`;
+}
+
+function buildDurationDetail(duration, geometry, material) {
+  return `去除¥${duration.removalCost}+复杂度¥${duration.complexityCost} (去除×${material.removalFactor} 加工×${material.machiningFactor})`;
+}
+
 /**
  * @param {object} input
- * @param {object} [input.features] normalizeMachiningFeatures 输出
+ * @param {object} [input.features]
  * @param {string} [input.material]
+ * @param {string} [input.materialCategory]
  * @param {string} [input.finishing]
  * @param {number} [input.quantity]
- * @param {object} [input.rates]
  */
 export function estimateQuote(input = {}) {
   const rates = { ...DEFAULT_QUOTE_RATES, ...(input.rates || {}) };
-  const materialKey = normalizeMaterialKey(input.material);
-  const density = MATERIAL_DENSITY[materialKey] ?? 2.7;
-  const materialPricePerKg = MATERIAL_PRICE_PER_KG[materialKey] ?? 28;
+  const material = resolveMaterialProfile(input.material, input.materialCategory);
   const quantity = Math.max(1, parseInt(input.quantity, 10) || 1);
 
   const geometry = resolveGeometryInput(input);
@@ -213,48 +303,22 @@ export function estimateQuote(input = {}) {
   const finishingText = input.finishing ?? input.surfaceTreatment;
 
   const massG = geometry.volumeCm3 != null
-    ? roundMoney(geometry.volumeCm3 * density)
+    ? roundMoney(geometry.volumeCm3 * material.density)
     : null;
   const materialCost = massG != null
-    ? roundMoney((massG / 1000) * materialPricePerKg)
+    ? roundMoney((massG / 1000) * material.pricePerKg)
     : 0;
 
-  // 加工工艺费：材料 + 开孔/圆角/轴/表面处理等工序
-  let processCost = rates.setupCny + materialCost;
-  processCost += feature.small * rates.smallHole;
-  processCost += feature.standard * rates.standardHole;
-  processCost += feature.large * rates.largeHole;
-  processCost += feature.counterbored * rates.counterboredPremium;
-  processCost += Math.min(feature.filletCount, rates.filletCap) * rates.filletEach;
-  processCost += feature.shaftCount * rates.shaftEach;
-  processCost += estimateFinishingFee(finishingText, rates);
-
-  // 加工时长费：去除量、大零件、面数复杂度（时间主驱动）
-  let durationCost = 0;
-  if (geometry.removalCm3 != null) {
-    durationCost += geometry.removalCm3 * rates.removalPerCm3;
-  }
-  if (geometry.volumeCm3 != null) {
-    durationCost += geometry.volumeCm3 * rates.partVolumePerCm3;
-  }
-  if (geometry.bboxCm3 != null && geometry.bboxCm3 > rates.bboxThresholdCm3) {
-    durationCost += (geometry.bboxCm3 - rates.bboxThresholdCm3) * rates.bboxPremiumPerCm3;
-  }
-  if (feature.faceCount != null && feature.faceCount > rates.faceThreshold) {
-    durationCost += (feature.faceCount - rates.faceThreshold) * rates.faceRate;
-  }
-
-  const isBrass = /黄铜|H59|紫铜/i.test(materialKey);
-  if (isBrass) {
-    processCost *= rates.materialFactorBrass;
-    durationCost *= rates.materialFactorBrass;
-  }
-
-  processCost = roundMoney(processCost);
-  durationCost = roundMoney(durationCost);
+  const setupCost = roundMoney(rates.setupCny * material.machiningFactor);
+  const featureCost = computeFeatureCost(feature, rates, material.featureFactor);
+  const featureCostScaled = roundMoney(featureCost * material.machiningFactor);
   const finishingFee = roundMoney(estimateFinishingFee(finishingText, rates));
-  const manufacturingSubtotal = roundMoney(processCost + durationCost);
+  const processCost = roundMoney(materialCost + setupCost + featureCostScaled + finishingFee);
 
+  const durationParts = computeDurationCost(geometry, feature, rates, material.removalFactor);
+  const durationCost = roundMoney(durationParts.total * material.machiningFactor);
+
+  const manufacturingSubtotal = roundMoney(processCost + durationCost);
   const subtotalBeforeTax = roundMoney(manufacturingSubtotal + SHIPPING_CNY);
   const tax = roundMoney(subtotalBeforeTax * TAX_RATE);
   const unitTotal = roundMoney(subtotalBeforeTax + tax);
@@ -266,9 +330,7 @@ export function estimateQuote(input = {}) {
 
   if (feature.requiresManualReview) {
     autoQuoteEligible = false;
-    if (!reviewReasons.includes('requires_manual_review')) {
-      reviewReasons.push('requires_manual_review');
-    }
+    reviewReasons.push('requires_manual_review');
   }
   if (geometry.volumeCm3 == null && geometry.bboxCm3 == null) {
     autoQuoteEligible = false;
@@ -286,11 +348,17 @@ export function estimateQuote(input = {}) {
     autoQuoteEligible = false;
     reviewReasons.push('high_face_count');
   }
-  if (isBrass && feature.large >= 2) {
+  if (material.category === '铜合金' && feature.large >= 2) {
     reviewReasons.push('brass_large_hole');
+  }
+  if (material.category === '塑料' && feature.holeCount === 0 && feature.filletCount === 0 && durationCost < 5) {
+    reviewReasons.push('plastic_simple_part');
   }
   if (!isNoSurfaceTreatment(finishingText) && finishingFee === 0) {
     reviewReasons.push('unknown_surface_treatment');
+  }
+  if (!MATERIAL_PROFILES[material.key] && !CATEGORY_DEFAULTS[material.category]) {
+    reviewReasons.push('unknown_material');
   }
 
   const confidence = autoQuoteEligible ? 'high' : 'review';
@@ -303,36 +371,55 @@ export function estimateQuote(input = {}) {
     quantity,
     unitPrice: unitTotal,
     totalPrice: lineTotal,
+    material: {
+      key: material.key,
+      label: material.label,
+      category: material.category,
+      density: material.density,
+      pricePerKg: material.pricePerKg,
+      removalFactor: material.removalFactor,
+      featureFactor: material.featureFactor,
+      machiningFactor: material.machiningFactor,
+    },
     breakdown: {
       processCost,
       durationCost,
       manufacturingSubtotal,
       materialCost,
+      setupCost,
+      featureCost: featureCostScaled,
       finishingFee,
+      removalCost: durationParts.removalCost,
+      complexityCost: durationParts.complexityCost,
+      processDetail: buildProcessDetail(materialCost, setupCost, featureCostScaled, finishingFee, material),
+      durationDetail: buildDurationDetail(
+        {
+          removalCost: roundMoney(durationParts.removalCost * material.machiningFactor),
+          complexityCost: roundMoney(durationParts.complexityCost * material.machiningFactor),
+        },
+        geometry,
+        material,
+      ),
       estimatedMinutes,
       shipping: SHIPPING_CNY,
       tax,
       taxRate: TAX_RATE,
       subtotalBeforeTax,
-      // 兼容旧字段
       machiningSubtotal: manufacturingSubtotal,
       finishing: finishingFee,
-      setup: rates.setupCny,
-      removalVolumeCm3: geometry.removalCm3,
-      machiningOps: roundMoney(processCost - rates.setupCny - materialCost + durationCost),
     },
     geometry: {
       ...geometry,
       massG,
-      density,
-      materialKey,
+      density: material.density,
+      materialKey: material.key,
     },
     features: feature,
     autoQuoteEligible,
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.1',
+    formulaVersion: '1.2',
   };
 }
 
@@ -340,6 +427,8 @@ export function buildQuoteShopifyAttributes(quote) {
   if (!quote) return [];
 
   const b = quote.breakdown;
+  const m = quote.material;
+
   const attrs = [
     {
       key: '自动估价',
@@ -348,11 +437,18 @@ export function buildQuoteShopifyAttributes(quote) {
     { key: '估价置信度', value: quote.confidence === 'high' ? '高' : '需复核' },
     { key: '估价数量', value: String(quote.quantity) },
     { key: '估价总价', value: `¥${quote.totalPrice}` },
-    { key: '加工工艺费', value: `¥${b.processCost}` },
-    { key: '加工时长费', value: `¥${b.durationCost}` },
+    { key: '加工工艺费', value: `¥${b.processCost} (${b.processDetail})` },
+    { key: '加工时长费', value: `¥${b.durationCost} (${b.durationDetail})` },
     { key: '预估加工时长', value: `${b.estimatedMinutes} 分钟` },
     { key: '运费', value: `¥${b.shipping}` },
     { key: '税费', value: `¥${b.tax}` },
+    { key: '材料大类', value: m.category },
+    { key: '材料牌号', value: m.label },
+    { key: '材料费', value: `¥${b.materialCost}` },
+    { key: '材料单价', value: `¥${m.pricePerKg}/kg` },
+    { key: '材料加工系数', value: `加工×${m.machiningFactor} 去除×${m.removalFactor} 工序×${m.featureFactor}` },
+    { key: '开机费', value: `¥${b.setupCost}` },
+    { key: '特征加工费', value: `¥${b.featureCost}` },
   ];
 
   if (b.finishingFee > 0) {
@@ -360,6 +456,9 @@ export function buildQuoteShopifyAttributes(quote) {
   }
   if (quote.geometry.massG != null) {
     attrs.push({ key: '估算质量', value: `${quote.geometry.massG} g` });
+  }
+  if (quote.geometry.volumeCm3 != null) {
+    attrs.push({ key: '零件体积', value: `${quote.geometry.volumeCm3} cm³` });
   }
   if (quote.geometry.removalCm3 != null) {
     attrs.push({ key: '去除体积', value: `${quote.geometry.removalCm3} cm³` });
@@ -371,21 +470,26 @@ export function buildQuoteShopifyAttributes(quote) {
     });
   }
 
-  return attrs;
+  return attrs.map((item) => ({
+    key: item.key,
+    value: String(item.value).length > 250
+      ? `${String(item.value).slice(0, 247)}...`
+      : String(item.value),
+  }));
 }
 
 export function serializeQuoteBreakdown(quote) {
   const compact = {
     formulaVersion: quote.formulaVersion,
     unitPrice: quote.unitPrice,
-    autoQuoteEligible: quote.autoQuoteEligible,
+    material: quote.material,
     breakdown: quote.breakdown,
     geometry: {
       volumeCm3: quote.geometry.volumeCm3,
-      bboxCm3: quote.geometry.bboxCm3,
       removalCm3: quote.geometry.removalCm3,
       massG: quote.geometry.massG,
     },
+    autoQuoteEligible: quote.autoQuoteEligible,
   };
   const json = JSON.stringify(compact);
   return json.length > 250 ? `${json.slice(0, 247)}...` : json;

@@ -1,4 +1,5 @@
 import { setCorsHeaders } from '../utils/cors-config.js';
+import { stripHiddenDraftOrderAttributes } from '../utils/draft-order-attrs.js';
 
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -252,7 +253,7 @@ export default async function handler(req, res) {
           title: itemEdge.node.title,
           quantity: itemEdge.node.quantity,
           originalUnitPrice: itemEdge.node.originalUnitPrice,
-          customAttributes: itemEdge.node.customAttributes
+          customAttributes: stripHiddenDraftOrderAttributes(itemEdge.node.customAttributes)
         }))
       };
     });
