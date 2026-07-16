@@ -1524,7 +1524,7 @@
     }
   }
 
-  function buildMachiningFeatureAttributes(analysisResult) {
+  function buildMachiningFeatureAttributes(analysisResult, fileData) {
     const features = analysisResult?.features;
     if (!features) {
       const attrs = [
@@ -1535,6 +1535,15 @@
       }
       if (analysisResult?.hint) {
         attrs.push({ key: '解析提示', value: String(analysisResult.hint).slice(0, 250) });
+      }
+      if (fileData?.dimensions) {
+        const d = fileData.dimensions;
+        attrs.push({
+          key: '工件尺寸',
+          value: `${Number(d.width).toFixed(2)} x ${Number(d.height).toFixed(2)} x ${Number(d.depth).toFixed(2)} mm`,
+        });
+        attrs.push({ key: '包络体积', value: `${(d.width * d.height * d.depth).toFixed(2)} mm³` });
+        attrs.push({ key: '几何数据来源', value: '3D预览估算' });
       }
       return attrs;
     }
@@ -1561,6 +1570,17 @@
       if (item?.key && item?.value != null) {
         attrs.push({ key: item.key, value: String(item.value) });
       }
+    }
+
+    const hasWorkpieceSize = attrs.some((item) => item.key === '工件尺寸');
+    if (!hasWorkpieceSize && fileData?.dimensions) {
+      const d = fileData.dimensions;
+      attrs.push({
+        key: '工件尺寸',
+        value: `${Number(d.width).toFixed(2)} x ${Number(d.height).toFixed(2)} x ${Number(d.depth).toFixed(2)} mm`,
+      });
+      attrs.push({ key: '包络体积', value: `${(d.width * d.height * d.depth).toFixed(2)} mm³` });
+      attrs.push({ key: '几何数据来源', value: '3D预览估算' });
     }
 
     return attrs;
@@ -1968,7 +1988,7 @@
         );
       }
 
-      const machiningAttrs = buildMachiningFeatureAttributes(featureAnalysis);
+      const machiningAttrs = buildMachiningFeatureAttributes(featureAnalysis, fileData);
       let quoteStatus = 'Pending';
       if (featureAnalysis?.features?.requiresManualReview) {
         quoteStatus = 'Pending Review';
