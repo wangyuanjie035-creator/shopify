@@ -42,9 +42,19 @@ const PALMETTO_FETCH_HEADERS = {
   'ngrok-skip-browser-warning': 'true',
 };
 
+function isNgrokHtmlResponse(status, text) {
+  return /<!DOCTYPE html/i.test(text) || (/ngrok/i.test(text) && status >= 400);
+}
+
 function formatNonJsonError(context, status, text) {
-  if (/<!DOCTYPE html/i.test(text) && (status === 503 || status === 502)) {
-    return `${context} failed (${status}): Palmetto/ngrok 隧道离线。请确认 Docker Palmetto 在 8888 端口运行，且 ngrok http 8888 保持开启`;
+  if (isNgrokHtmlResponse(status, text)) {
+    if (status === 404) {
+      return `${context} failed (${status}): Palmetto/ngrok 地址不可达或隧道已变更。请确认 Docker Palmetto 在 8888 端口运行、ngrok http 8888 保持开启，且 Vercel PALMETTO_SERVICE_URL 与当前 ngrok 地址一致`;
+    }
+    if (status === 503 || status === 502) {
+      return `${context} failed (${status}): Palmetto/ngrok 隧道离线。请确认 Docker Palmetto 在 8888 端口运行，且 ngrok http 8888 保持开启`;
+    }
+    return `${context} failed (${status}): Palmetto/ngrok 返回 HTML 页面而非 JSON，隧道可能不稳定，请稍后重试`;
   }
   return `${context} returned non-JSON (${status}): ${text.slice(0, 300)}`;
 }
@@ -55,10 +65,10 @@ function sleep(ms) {
 
 function isTransientPalmettoError(error) {
   const msg = error?.message || '';
-  return /\(502\)|\(503\)|隧道离线|unreachable|ECONNRESET|fetch failed|socket hang up/i.test(msg);
+  return /\(502\)|\(503\)|\(404\)|隧道离线|隧道已变更|隧道可能不稳定|HTML 页面而非 JSON|unreachable|ECONNRESET|fetch failed|socket hang up/i.test(msg);
 }
 
-async function withPalmettoRetry(label, fn, attempts = 3) {
+async function withPalmettoRetry(label, fn, attempts = 4) {
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
@@ -174,6 +184,18 @@ export async function checkPalmettoHealth() {
     }
   } catch {
     // Optional endpoint
+  }
+
+  const modulesResponse = await fetch(`${baseUrl}/api/analyze/modules`, {
+    method: 'GET',
+    headers: PALMETTO_FETCH_HEADERS,
+  });
+  if (!modulesResponse.ok) {
+    const text = await modulesResponse.text();
+    if (isNgrokHtmlResponse(modulesResponse.status, text)) {
+      throw new Error(formatNonJsonError('Palmetto modules probe', modulesResponse.status, text));
+    }
+    throw new Error(`Palmetto modules probe failed at ${baseUrl} (${modulesResponse.status})`);
   }
 
   return { ok: true, baseUrl, engineAvailable };
@@ -293,8 +315,18 @@ export async function analyzeAllFeatures(modelId, modules = DEFAULT_MODULES) {
 
 export async function downloadFileFromUrl(fileUrl) {
   const response = await fetch(fileUrl, { method: 'GET' });
+  const contentType = response.headers.get('content-type') || '';
+
   if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (isNgrokHtmlResponse(response.status, text) || /<!DOCTYPE html/i.test(text)) {
+      throw new Error(`Failed to download STEP file (${response.status}): Shopify 文件 URL 尚未就绪或已失效，请稍后重试`);
+    }
     throw new Error(`Failed to download STEP file (${response.status}): ${fileUrl}`);
+  }
+
+  if (/text\/html/i.test(contentType)) {
+    throw new Error('Failed to download STEP file: URL 返回 HTML 而非 STEP 文件，Shopify CDN 可能尚未就绪');
   }
 
   const arrayBuffer = await response.arrayBuffer();

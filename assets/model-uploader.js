@@ -1460,6 +1460,7 @@
   }
 
   async function analyzeStepMachiningFeatures(apiBase, fileUrl, fileName, attempt = 1) {
+    const MAX_ATTEMPTS = 3;
     if (!fileUrl || !isStepFile(fileName)) {
       return null;
     }
@@ -1481,10 +1482,14 @@
       const json = await resp.json();
       if (!resp.ok || !json.success) {
         const msg = json.message || `HTTP ${resp.status}`;
-        const retryable = attempt < 2 && (resp.status === 503 || /503|隧道离线|non-JSON/i.test(msg));
+        const retryable = attempt < MAX_ATTEMPTS && (
+          resp.status === 503
+          || resp.status === 404
+          || /503|404|隧道|ngrok|non-JSON|Palmetto|尚未就绪/i.test(msg)
+        );
         if (retryable) {
-          console.warn('⚠️ 特征分析临时失败，3 秒后重试:', msg);
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          console.warn(`⚠️ 特征分析临时失败，${3 * attempt} 秒后重试:`, msg);
+          await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
           return analyzeStepMachiningFeatures(apiBase, fileUrl, fileName, attempt + 1);
         }
         console.warn('⚠️ 特征分析未成功:', msg);
@@ -1493,7 +1498,9 @@
           error: msg,
           hint: resp.status === 504 || /timeout|timed out/i.test(msg)
             ? '分析超时：请确认 Palmetto 与 ngrok 在运行，或模型面数过多'
-            : (resp.status === 503 ? 'Palmetto 服务不可达，请检查 ngrok 与 PALMETTO_SERVICE_URL' : ''),
+            : (resp.status === 503 || resp.status === 404 || /隧道|ngrok/i.test(msg)
+              ? 'Palmetto/ngrok 不可达，请确认 Docker 在 8888 端口运行且 ngrok http 8888 与 Vercel PALMETTO_SERVICE_URL 一致'
+              : ''),
         };
       }
 
@@ -1501,9 +1508,9 @@
       return json;
     } catch (error) {
       const isAbort = error.name === 'AbortError';
-      if (!isAbort && attempt < 2) {
-        console.warn('⚠️ 特征分析请求失败，3 秒后重试:', error.message);
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (!isAbort && attempt < MAX_ATTEMPTS) {
+        console.warn(`⚠️ 特征分析请求失败，${3 * attempt} 秒后重试:`, error.message);
+        await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
         return analyzeStepMachiningFeatures(apiBase, fileUrl, fileName, attempt + 1);
       }
       console.warn('⚠️ 特征分析请求失败:', error.message);
