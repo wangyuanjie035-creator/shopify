@@ -1586,6 +1586,45 @@
     return attrs;
   }
 
+  async function calculateAutoQuote(apiBase, featureAnalysis, fileData, config, surfaceText) {
+    if (!featureAnalysis?.features) return null;
+
+    try {
+      const quantity = parseInt(config.quantity || 1, 10) || 1;
+      const resp = await fetch(`${apiBase}/calculate-quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features: featureAnalysis.features,
+          material: config.material,
+          finishing: surfaceText,
+          quantity,
+        }),
+      });
+
+      const json = await resp.json();
+      if (!resp.ok || !json.success) {
+        console.warn('⚠️ 自动估价未成功:', json.message || resp.status);
+        return null;
+      }
+
+      console.log('💰 自动估价:', json.quote?.unitPrice, json.quote?.autoQuoteEligible ? '(可自动)' : '(需复核)');
+      return json;
+    } catch (error) {
+      console.warn('⚠️ 自动估价请求失败:', error.message);
+      return null;
+    }
+  }
+
+  function buildQuoteAttributes(quoteResult) {
+    if (!quoteResult) return [];
+    const attrs = [...(quoteResult.shopifyAttributes || [])];
+    if (quoteResult.shopifySummary) {
+      attrs.push({ key: '估价明细', value: quoteResult.shopifySummary });
+    }
+    return attrs;
+  }
+
   // 检查3D文件是否有对应的2D文件
   function hasCorresponding2DFile(threeDFileId) {
     const threeDFileData = fileManager.files.get(threeDFileId);
@@ -1989,14 +2028,30 @@
       }
 
       const machiningAttrs = buildMachiningFeatureAttributes(featureAnalysis, fileData);
+      const autoQuote = await calculateAutoQuote(
+        API_BASE,
+        featureAnalysis,
+        fileData,
+        config,
+        surfaceText
+      );
+      const quoteAttrs = buildQuoteAttributes(autoQuote);
+
       let quoteStatus = 'Pending';
-      if (featureAnalysis?.features?.requiresManualReview) {
+      if (autoQuote?.quote?.autoQuoteEligible) {
+        quoteStatus = 'Auto Quoted';
+      } else if (featureAnalysis?.features?.requiresManualReview) {
         quoteStatus = 'Pending Review';
       } else if (featureAnalysis?.features?.status === 'ok' || featureAnalysis?.features?.status === 'partial') {
-        quoteStatus = 'Features Analyzed';
+        quoteStatus = autoQuote ? 'Quote Estimated' : 'Features Analyzed';
       } else if (featureAnalysis?.status === 'failed') {
         quoteStatus = 'Feature Analysis Failed';
       }
+
+      const unitPrice = autoQuote?.quote?.autoQuoteEligible
+        ? autoQuote.quote.unitPrice
+        : 0;
+      const lineQuantity = parseInt(config.quantity || 1, 10) || 1;
 
       // 4.2 为该 3D 文件及其对应 2D 文件生成 lineItems
       const lineItems = [];
@@ -2004,8 +2059,8 @@
       // 4.2.1 为 3D 文件创建 lineItem
       lineItems.push({
         title: fileData.file.name,
-        quantity: parseInt(config.quantity || 1, 10) || 1,
-        price: 0,
+        quantity: lineQuantity,
+        price: unitPrice,
         requires_shipping: false,
         customAttributes: [
           { key: 'Order Type', value: '3D Model Quote' },
@@ -2027,6 +2082,7 @@
           { key: 'Shopify文件URL', value: threeDMeta.shopifyFileUrl },
           { key: '原始文件大小', value: String(threeDMeta.originalFileSize || fileData.file.size) },
           ...machiningAttrs,
+          ...quoteAttrs,
           { key: '_uuid', value: Date.now() + '-' + Math.random().toString(36).substr(2, 9) }
         ],
       });

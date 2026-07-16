@@ -3,6 +3,9 @@
     "api/analyze-step-features.js": {
       "maxDuration": 60
     },
+    "api/calculate-quote.js": {
+      "maxDuration": 10
+    },
     "api/submit-quote-real.js": {
       "maxDuration": 20
     },
