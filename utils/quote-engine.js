@@ -1,11 +1,11 @@
 /**
- * CNC 自动报价引擎 v1 — 基于 Palmetto 特征 + 工件几何（体积/尺寸/质量）
+ * CNC 自动报价引擎 v1.1
  *
- * 价格结构（与历史订单 PPT 一致）：
- *   总价 = (加工费 + 表面处理费 + 运费) × (1 + 税率)
+ * 价格结构（四块）：
+ *   总价 = 加工工艺费 + 加工时长费 + 运费 + 税费
+ *   税费 = (加工工艺费 + 加工时长费 + 运费) × 13%
  *
- * 加工费主驱动：去除体积（包络 − 零件）、大零件包络附加、孔/圆角/轴、材料费。
- * 系数由 4 单历史订单校准（scripts/tune-quote-rates.py）。
+ * 表面处理（若选择）计入加工工艺费；「无需表面处理」不计费。
  */
 
 export const TAX_RATE = 0.13;
@@ -60,7 +60,26 @@ export const DEFAULT_QUOTE_RATES = {
   materialFactorBrass: 1.8,
   finishingAnodize: 50,
   finishingSandblastAnodize: 50,
+  /** 用于由「加工时长费」反推分钟数 */
+  machiningHourlyCny: 150,
 };
+
+export function isNoSurfaceTreatment(finishing) {
+  const text = String(finishing || '').trim();
+  if (!text) return true;
+  if (/^(无|未指定|none|n\/a)$/i.test(text)) return true;
+  return /无需|不需|不要|无.*表面|不.*表面|no\s*finish/i.test(text);
+}
+
+export function estimateFinishingFee(finishing, rates) {
+  const text = String(finishing || '').trim();
+  if (isNoSurfaceTreatment(text)) return 0;
+  if (/喷砂.*阳极|阳极.*喷砂/.test(text)) return rates.finishingSandblastAnodize;
+  if (/阳极/.test(text)) return rates.finishingAnodize;
+  if (/喷砂/.test(text)) return rates.finishingSandblastAnodize * 0.6;
+  if (/电镀|喷涂|氧化|抛光|拉丝|喷漆|烤漆|丝印|激光打标|UV打印/.test(text)) return 35;
+  return 0;
+}
 
 function roundMoney(value) {
   return Math.round(value * 100) / 100;
@@ -168,13 +187,10 @@ export function resolveFeatureInput(input = {}) {
   };
 }
 
-function estimateFinishingFee(finishing, rates) {
-  const text = String(finishing || '').trim();
-  if (!text || text === '无' || text === '未指定') return 0;
-  if (/喷砂.*阳极|阳极.*喷砂/.test(text)) return rates.finishingSandblastAnodize;
-  if (/阳极/.test(text)) return rates.finishingAnodize;
-  if (/喷砂/.test(text)) return rates.finishingSandblastAnodize * 0.6;
-  return 30;
+function estimateMachiningMinutes(durationCost, rates) {
+  const perMinute = rates.machiningHourlyCny / 60;
+  if (!perMinute || durationCost <= 0) return 0;
+  return roundMoney(durationCost / perMinute);
 }
 
 /**
@@ -194,6 +210,7 @@ export function estimateQuote(input = {}) {
 
   const geometry = resolveGeometryInput(input);
   const feature = resolveFeatureInput(input);
+  const finishingText = input.finishing ?? input.surfaceTreatment;
 
   const massG = geometry.volumeCm3 != null
     ? roundMoney(geometry.volumeCm3 * density)
@@ -202,38 +219,47 @@ export function estimateQuote(input = {}) {
     ? roundMoney((massG / 1000) * materialPricePerKg)
     : 0;
 
-  let machining = rates.setupCny + materialCost;
+  // 加工工艺费：材料 + 开孔/圆角/轴/表面处理等工序
+  let processCost = rates.setupCny + materialCost;
+  processCost += feature.small * rates.smallHole;
+  processCost += feature.standard * rates.standardHole;
+  processCost += feature.large * rates.largeHole;
+  processCost += feature.counterbored * rates.counterboredPremium;
+  processCost += Math.min(feature.filletCount, rates.filletCap) * rates.filletEach;
+  processCost += feature.shaftCount * rates.shaftEach;
+  processCost += estimateFinishingFee(finishingText, rates);
 
+  // 加工时长费：去除量、大零件、面数复杂度（时间主驱动）
+  let durationCost = 0;
   if (geometry.removalCm3 != null) {
-    machining += geometry.removalCm3 * rates.removalPerCm3;
+    durationCost += geometry.removalCm3 * rates.removalPerCm3;
   }
   if (geometry.volumeCm3 != null) {
-    machining += geometry.volumeCm3 * rates.partVolumePerCm3;
+    durationCost += geometry.volumeCm3 * rates.partVolumePerCm3;
   }
   if (geometry.bboxCm3 != null && geometry.bboxCm3 > rates.bboxThresholdCm3) {
-    machining += (geometry.bboxCm3 - rates.bboxThresholdCm3) * rates.bboxPremiumPerCm3;
+    durationCost += (geometry.bboxCm3 - rates.bboxThresholdCm3) * rates.bboxPremiumPerCm3;
   }
-
-  machining += feature.small * rates.smallHole;
-  machining += feature.standard * rates.standardHole;
-  machining += feature.large * rates.largeHole;
-  machining += feature.counterbored * rates.counterboredPremium;
-  machining += Math.min(feature.filletCount, rates.filletCap) * rates.filletEach;
-  machining += feature.shaftCount * rates.shaftEach;
-
   if (feature.faceCount != null && feature.faceCount > rates.faceThreshold) {
-    machining += (feature.faceCount - rates.faceThreshold) * rates.faceRate;
+    durationCost += (feature.faceCount - rates.faceThreshold) * rates.faceRate;
   }
 
   const isBrass = /黄铜|H59|紫铜/i.test(materialKey);
   if (isBrass) {
-    machining *= rates.materialFactorBrass;
+    processCost *= rates.materialFactorBrass;
+    durationCost *= rates.materialFactorBrass;
   }
 
-  const finishing = estimateFinishingFee(input.finishing ?? input.surfaceTreatment, rates);
-  const subtotal = machining + finishing + SHIPPING_CNY;
-  const unitTotal = roundMoney(subtotal * (1 + TAX_RATE));
+  processCost = roundMoney(processCost);
+  durationCost = roundMoney(durationCost);
+  const finishingFee = roundMoney(estimateFinishingFee(finishingText, rates));
+  const manufacturingSubtotal = roundMoney(processCost + durationCost);
+
+  const subtotalBeforeTax = roundMoney(manufacturingSubtotal + SHIPPING_CNY);
+  const tax = roundMoney(subtotalBeforeTax * TAX_RATE);
+  const unitTotal = roundMoney(subtotalBeforeTax + tax);
   const lineTotal = roundMoney(unitTotal * quantity);
+  const estimatedMinutes = estimateMachiningMinutes(durationCost, rates);
 
   const reviewReasons = [...feature.reviewReasons];
   let autoQuoteEligible = feature.status === 'ok' || feature.status === 'partial';
@@ -263,6 +289,9 @@ export function estimateQuote(input = {}) {
   if (isBrass && feature.large >= 2) {
     reviewReasons.push('brass_large_hole');
   }
+  if (!isNoSurfaceTreatment(finishingText) && finishingFee === 0) {
+    reviewReasons.push('unknown_surface_treatment');
+  }
 
   const confidence = autoQuoteEligible ? 'high' : 'review';
   if (!autoQuoteEligible && !reviewReasons.length) {
@@ -275,17 +304,22 @@ export function estimateQuote(input = {}) {
     unitPrice: unitTotal,
     totalPrice: lineTotal,
     breakdown: {
-      setup: rates.setupCny,
+      processCost,
+      durationCost,
+      manufacturingSubtotal,
       materialCost,
-      removalVolumeCm3: geometry.removalCm3,
-      machiningOps: roundMoney(
-        machining - rates.setupCny - materialCost
-      ),
-      machiningSubtotal: roundMoney(machining),
-      finishing: roundMoney(finishing),
+      finishingFee,
+      estimatedMinutes,
       shipping: SHIPPING_CNY,
+      tax,
       taxRate: TAX_RATE,
-      subtotalBeforeTax: roundMoney(subtotal),
+      subtotalBeforeTax,
+      // 兼容旧字段
+      machiningSubtotal: manufacturingSubtotal,
+      finishing: finishingFee,
+      setup: rates.setupCny,
+      removalVolumeCm3: geometry.removalCm3,
+      machiningOps: roundMoney(processCost - rates.setupCny - materialCost + durationCost),
     },
     geometry: {
       ...geometry,
@@ -298,13 +332,14 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.0',
+    formulaVersion: '1.1',
   };
 }
 
 export function buildQuoteShopifyAttributes(quote) {
   if (!quote) return [];
 
+  const b = quote.breakdown;
   const attrs = [
     {
       key: '自动估价',
@@ -313,11 +348,16 @@ export function buildQuoteShopifyAttributes(quote) {
     { key: '估价置信度', value: quote.confidence === 'high' ? '高' : '需复核' },
     { key: '估价数量', value: String(quote.quantity) },
     { key: '估价总价', value: `¥${quote.totalPrice}` },
-    { key: '加工费估算', value: `¥${quote.breakdown.machiningSubtotal}` },
-    { key: '表面处理费', value: `¥${quote.breakdown.finishing}` },
-    { key: '材料费估算', value: `¥${quote.breakdown.materialCost}` },
+    { key: '加工工艺费', value: `¥${b.processCost}` },
+    { key: '加工时长费', value: `¥${b.durationCost}` },
+    { key: '预估加工时长', value: `${b.estimatedMinutes} 分钟` },
+    { key: '运费', value: `¥${b.shipping}` },
+    { key: '税费', value: `¥${b.tax}` },
   ];
 
+  if (b.finishingFee > 0) {
+    attrs.push({ key: '表面处理费', value: `¥${b.finishingFee}` });
+  }
   if (quote.geometry.massG != null) {
     attrs.push({ key: '估算质量', value: `${quote.geometry.massG} g` });
   }
