@@ -1,10 +1,8 @@
 /**
- * CNC 自动报价引擎 v1.5 — 单件小批量市场价 + 批量成本价
+ * CNC 自动报价引擎 v1.6 — 特征驱动加工计价
  *
- * 总价 = 加工工艺费 + 加工时长费 + 运费 + 税费
- *
- * qty=1：材料/加工/表面按外协平台小批量标准（保守 MRR、最低开料、装夹费等）
- * qty≥2：沿用 v1.4.1 四单成本价校准系数，调机费随数量摊薄
+ * 加工/时长以 Palmetto 特征（孔/圆角/型腔/面数/去除量）为主，尺寸仅作辅助；
+ * 大尺寸低特征简单件不应被包络尺寸单独抬高价格。
  */
 
 export const TAX_RATE = 0.13;
@@ -98,11 +96,23 @@ export const DEFAULT_QUOTE_RATES = {
   simplePartMaxRemovalCm3: 2.8,
   simplePartMaxRemovalRatio: 0.30,
   simplePartMaxFeatureUnits: 3.5,
-  /** 大零件包络附加时长：min / cm³ 超阈值部分 */
+  simplePartMaxFaceCount: 48,
+  /** 简单件加工时长折扣；复杂件溢价 */
+  simpleMachiningFactor: 0.58,
+  complexMachiningFactor: 1.32,
+  /** 简单件精加工刀路强度（相对标准） */
+  simpleFinishIntensity: 0.30,
+  complexFinishIntensity: 1.20,
+  /** 曲面/多面：从该面数起计附加分钟（简单件阈值更高） */
+  simpleFaceBaseline: 14,
+  standardFaceBaseline: 8,
+  complexFaceBaseline: 6,
+  faceExtraMinEach: 0.10,
+  /** 大零件包络附加：仅非简单件且去除比≥阈值时启用 */
   bboxThresholdCm3: 200,
   bboxExtraMinPerCm3: 0.012,
+  bboxMinRemovalRatio: 0.18,
   faceThreshold: 55,
-  faceExtraMinEach: 0.08,
   /** 精加工/刀路附加：成品体积 × 分钟/cm³ */
   finishMinPerPartVolumeCm3: 0.015,
   /** 表面处理：面积×单价×复杂度（无底价、无最低开单面积） */
@@ -407,8 +417,9 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
   const removalIntensity = volumeCm3 > 0
     ? Math.min(removalCm3 / Math.max(volumeCm3, 0.25), 6) / 6
     : Math.min(removalCm3 / 6, 1);
+  const faceCount = feature.faceCount ?? 0;
 
-  const featureUnits = roundMoney(
+  const coreFeatureUnits = roundMoney(
     (feature.holeCount || 0)
     + (feature.filletCount || 0) * 0.35
     + (feature.cavityCount || 0) * 2.5
@@ -416,23 +427,42 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
     + (feature.counterbored || 0) * 0.5,
   );
 
+  const featureUnits = roundMoney(coreFeatureUnits + Math.max(0, faceCount - 6) * 0.04);
+
+  const faceComplexity = faceCount > 6
+    ? Math.min((faceCount - 6) / 120, 0.28)
+    : 0;
+
   const score = roundMoney(Math.min(Math.max(
-    removalRatio * 0.38
-    + removalIntensity * 0.32
-    + Math.min(featureUnits / 8, 1) * 0.22
-    + Math.min(Math.log10(bboxCm3 + 1) / 3.2, 1) * 0.08,
+    removalRatio * 0.28
+    + removalIntensity * 0.24
+    + Math.min(featureUnits / 8, 1) * 0.32
+    + faceComplexity,
     0,
   ), 1));
 
-  const isSimple = removalCm3 <= (rates.simplePartMaxRemovalCm3 ?? 2.8)
+  const lowRemoval = removalCm3 <= (rates.simplePartMaxRemovalCm3 ?? 2.8)
+    || removalRatio <= 0.10;
+
+  const isSimple = lowRemoval
     && removalRatio <= (rates.simplePartMaxRemovalRatio ?? 0.30)
-    && featureUnits <= (rates.simplePartMaxFeatureUnits ?? 3.5)
+    && coreFeatureUnits <= (rates.simplePartMaxFeatureUnits ?? 3.5)
+    && faceCount <= (rates.simplePartMaxFaceCount ?? 48)
     && (feature.cavityCount || 0) === 0
-    && (feature.shaftCount || 0) === 0;
+    && (feature.shaftCount || 0) === 0
+    && (feature.holeCount || 0) <= 6;
 
   let level = 'standard';
   if (isSimple) level = 'simple';
-  else if (score >= 0.62 || removalCm3 > 40 || (feature.holeCount || 0) > 12) level = 'complex';
+  else if (
+    score >= 0.55
+    || removalCm3 > 40
+    || (feature.holeCount || 0) > 12
+    || faceCount > 90
+    || (feature.filletCount || 0) > 25
+  ) {
+    level = 'complex';
+  }
 
   return {
     level,
@@ -441,7 +471,40 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
     removalRatio: roundMoney(removalRatio),
     removalIntensity: roundMoney(removalIntensity),
     featureUnits,
+    faceCount,
   };
+}
+
+/** 加工时长综合系数：简单件打折，复杂件（多孔/多曲面）加价 */
+export function computeMachiningComplexityFactor(complexity, feature, rates = DEFAULT_QUOTE_RATES) {
+  if (complexity.isSimple) {
+    return rates.simpleMachiningFactor ?? 0.58;
+  }
+  if (complexity.level === 'complex') {
+    let factor = rates.complexMachiningFactor ?? 1.32;
+    const faceCount = feature.faceCount ?? complexity.faceCount ?? 0;
+    if (faceCount > 120) factor += 0.08;
+    if ((feature.holeCount ?? 0) > 20) factor += 0.06;
+    return roundMoney(Math.min(factor, 1.55));
+  }
+  let factor = 1;
+  const faceCount = feature.faceCount ?? 0;
+  if (faceCount > 70) factor += 0.06;
+  if ((feature.holeCount ?? 0) > 8) factor += 0.05;
+  if ((feature.filletCount ?? 0) > 15) factor += 0.04;
+  return roundMoney(Math.min(factor, 1.18));
+}
+
+function resolveFaceBaseline(complexity, rates) {
+  if (complexity.isSimple) return rates.simpleFaceBaseline ?? 14;
+  if (complexity.level === 'complex') return rates.complexFaceBaseline ?? 6;
+  return rates.standardFaceBaseline ?? 8;
+}
+
+function resolveFinishIntensity(complexity, rates) {
+  if (complexity.isSimple) return rates.simpleFinishIntensity ?? 0.30;
+  if (complexity.level === 'complex') return rates.complexFinishIntensity ?? 1.20;
+  return 0.85;
 }
 
 function resolveSetupMinutes(complexity, rates) {
@@ -478,26 +541,59 @@ function computeFeatureMinutes(feature, rates, featureFactor, material) {
   return roundMoney(minutes * featureFactor * scale * brassScale);
 }
 
-function computeMachiningMinutes(geometry, feature, material, rates) {
+function computeMachiningMinutes(geometry, feature, material, rates, complexity) {
   const hourly = rates.machineHourlyCny;
   let minutes = 0;
+  let faceExtraMinutes = 0;
+  let bboxExtraMinutes = 0;
+  let finishPathMinutes = 0;
 
   const mrr = resolveMaterialMrr(material, rates);
   if (geometry.removalCm3 != null && geometry.removalCm3 > 0) {
     minutes += geometry.removalCm3 / mrr;
   }
+
+  const finishIntensity = resolveFinishIntensity(complexity, rates);
   if (geometry.volumeCm3 != null) {
-    minutes += geometry.volumeCm3 * (rates.finishMinPerPartVolumeCm3 ?? 0.015);
+    finishPathMinutes = geometry.volumeCm3 * (rates.finishMinPerPartVolumeCm3 ?? 0.015) * finishIntensity;
+    minutes += finishPathMinutes;
   }
-  if (geometry.bboxCm3 != null && geometry.bboxCm3 > rates.bboxThresholdCm3) {
-    minutes += (geometry.bboxCm3 - rates.bboxThresholdCm3) * (rates.bboxExtraMinPerCm3 ?? 0.012);
+
+  const removalRatio = complexity.removalRatio ?? 0;
+  const bboxThreshold = rates.bboxThresholdCm3 ?? 200;
+  const minRemovalRatio = rates.bboxMinRemovalRatio ?? 0.18;
+  if (
+    !complexity.isSimple
+    && geometry.bboxCm3 != null
+    && geometry.bboxCm3 > bboxThreshold
+    && removalRatio >= minRemovalRatio
+  ) {
+    bboxExtraMinutes = (geometry.bboxCm3 - bboxThreshold) * (rates.bboxExtraMinPerCm3 ?? 0.012);
+    minutes += bboxExtraMinutes;
   }
-  if (feature.faceCount != null && feature.faceCount > rates.faceThreshold) {
-    minutes += (feature.faceCount - rates.faceThreshold) * (rates.faceExtraMinEach ?? 0.08);
+
+  const faceCount = feature.faceCount ?? complexity.faceCount ?? null;
+  const faceBaseline = resolveFaceBaseline(complexity, rates);
+  if (faceCount != null && faceCount > faceBaseline) {
+    const faceMult = complexity.level === 'complex' ? 1.25 : 1;
+    faceExtraMinutes = (faceCount - faceBaseline) * (rates.faceExtraMinEach ?? 0.10) * faceMult;
+    minutes += faceExtraMinutes;
   }
 
   minutes *= (material.machiningFactor ?? 1) * (material.category === '铜合金' ? (rates.brassDurationFactor ?? 1) : 1);
-  return { minutes: roundMoney(minutes), hourly, mrr };
+
+  const complexityFactor = computeMachiningComplexityFactor(complexity, feature, rates);
+  minutes *= complexityFactor;
+
+  return {
+    minutes: roundMoney(minutes),
+    hourly,
+    mrr,
+    complexityFactor,
+    faceExtraMinutes: roundMoney(faceExtraMinutes),
+    bboxExtraMinutes: roundMoney(bboxExtraMinutes),
+    finishPathMinutes: roundMoney(finishPathMinutes),
+  };
 }
 
 function computeLargeRemovalSurcharge(geometry, rates) {
@@ -534,8 +630,13 @@ function buildProcessDetail(materialCost, setupCost, featureCost, finishingFee, 
   return `${parts.join('+')} (${material.key} ¥${hourly}/h${tag})`;
 }
 
-function buildDurationDetail(machining, hourly) {
-  return `切削${machining.minutes}min×¥${hourly}/h MRR${machining.mrr}`;
+function buildDurationDetail(machining, hourly, complexity) {
+  const tag = complexity?.level === 'simple'
+    ? '简单件'
+    : complexity?.level === 'complex'
+      ? '复杂件'
+      : '标准';
+  return `切削${machining.minutes}min×¥${hourly}/h MRR${machining.mrr} ${tag}×${machining.complexityFactor}`;
 }
 
 function buildTimeSummary(setupMinutes, featureMinutes, machiningMinutes) {
@@ -573,7 +674,7 @@ export function estimateQuote(input = {}) {
   const featureMinutes = computeFeatureMinutes(feature, rates, material.featureFactor, material);
   const featureCost = minutesToCost(featureMinutes, hourly * material.machiningFactor);
 
-  const machining = computeMachiningMinutes(geometry, feature, material, rates);
+  const machining = computeMachiningMinutes(geometry, feature, material, rates, complexity);
   const removalSurcharge = computeLargeRemovalSurcharge(geometry, rates);
   const durationCost = roundMoney(minutesToCost(machining.minutes, hourly) + removalSurcharge);
 
@@ -667,6 +768,7 @@ export function estimateQuote(input = {}) {
       featureCost,
       featureMinutes,
       machiningMinutes: machining.minutes,
+      machiningComplexityFactor: machining.complexityFactor,
       removalSurcharge,
       machineHourlyCny: hourly,
       mrrCm3PerMin: machining.mrr,
@@ -680,7 +782,7 @@ export function estimateQuote(input = {}) {
       processDetail: buildProcessDetail(
         materialCost, setupCost, featureCost, finishingFee, fixtureFee, material, complexity, hourly,
       ),
-      durationDetail: buildDurationDetail(machining, hourly),
+      durationDetail: buildDurationDetail(machining, hourly, complexity),
       estimatedMinutes,
       shipping: SHIPPING_CNY,
       tax,
@@ -689,6 +791,8 @@ export function estimateQuote(input = {}) {
       profitMargin: 0,
       partComplexity: complexity.level,
       complexityScore: complexity.score,
+      featureUnits: complexity.featureUnits,
+      faceCount: complexity.faceCount,
       finishing: finishingFee,
     },
     geometry: {
@@ -703,10 +807,10 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.5.2',
+    formulaVersion: '1.6',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
-      : '4-order-cost-benchmark',
+      : 'feature-driven-market',
   };
 }
 
@@ -728,6 +832,8 @@ export function buildQuoteShopifyAttributes(quote) {
     },
     { key: '估价模式', value: modeLabel },
     { key: '数量档位', value: quote.pricingTierLabel || '标准批量' },
+    { key: '零件复杂度', value: `${b.partComplexity || 'standard'}(评分${b.complexityScore ?? '-'} 特征${b.featureUnits ?? '-'} 面${b.faceCount ?? '-'})` },
+    { key: '加工复杂度系数', value: String(b.machiningComplexityFactor ?? 1) },
     { key: '估价置信度', value: quote.confidence === 'high' ? '高' : quote.confidence === 'medium' ? '中(简单件)' : '需复核' },
     { key: '估价数量', value: String(quote.quantity) },
     { key: '估价总价', value: `¥${quote.totalPrice}` },
