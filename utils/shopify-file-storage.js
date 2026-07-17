@@ -44,7 +44,7 @@ export function getShopifyCredentials() {
 }
 
 async function shopifyGraphql(storeDomain, accessToken, query, variables) {
-  const response = await fetch(`https://${storeDomain}/admin/api/2024-01/graphql.json`, {
+  const response = await fetch(`https://${storeDomain}/admin/api/2024-10/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -53,6 +53,30 @@ async function shopifyGraphql(storeDomain, accessToken, query, variables) {
     body: JSON.stringify({ query, variables }),
   });
   return response.json();
+}
+
+/** Shopify Staged Upload 对中文/空格文件名易报 INTERNAL_SERVER_ERROR，上传时用 ASCII 安全名 */
+export function sanitizeStagedUploadFilename(fileName) {
+  const raw = String(fileName || 'upload.bin').trim() || 'upload.bin';
+  const dot = raw.lastIndexOf('.');
+  const ext = dot > 0 ? raw.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+  const stem = dot > 0 ? raw.slice(0, dot) : raw;
+  const asciiStem = stem
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+  const digits = (raw.match(/\d{6,}/g) || [])[0] || '';
+  let safeStem = asciiStem || (digits ? `part_${digits}` : 'upload');
+  safeStem = safeStem.replace(/^[-_.]+|[-_.]+$/g, '') || (digits ? `part_${digits}` : 'upload');
+  return ext ? `${safeStem}.${ext}` : `${safeStem}.bin`;
+}
+
+function isRetryableShopifyError(payload) {
+  const errors = payload?.errors || [];
+  return errors.some((err) => err?.extensions?.code === 'INTERNAL_SERVER_ERROR');
 }
 
 function sleep(ms) {
@@ -99,9 +123,10 @@ export function resolveStagedUploadTypes(fileType, fileName) {
   return { contentCategory, mimeType, resourceType, stagedMimeType };
 }
 
-export async function createStagedUploadTarget({ fileName, fileType }) {
+export async function createStagedUploadTarget({ fileName, fileType, fileSize }) {
   const { storeDomain, accessToken } = getShopifyCredentials();
   const { contentCategory, mimeType, resourceType, stagedMimeType } = resolveStagedUploadTypes(fileType, fileName);
+  const stagedFilename = sanitizeStagedUploadFilename(fileName);
 
   const stagedUploadMutation = `
     mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
@@ -122,13 +147,26 @@ export async function createStagedUploadTarget({ fileName, fileType }) {
     }
   `;
 
-  const stagedUploadData = await shopifyGraphql(storeDomain, accessToken, stagedUploadMutation, {
-    input: [{
-      filename: fileName,
-      mimeType: stagedMimeType,
-      resource: resourceType,
-    }],
+  const stagedInput = {
+    filename: stagedFilename,
+    mimeType: stagedMimeType,
+    resource: resourceType,
+    httpMethod: 'POST',
+  };
+  if (fileSize != null && Number(fileSize) > 0) {
+    stagedInput.fileSize = String(Math.ceil(Number(fileSize)));
+  }
+
+  let stagedUploadData = await shopifyGraphql(storeDomain, accessToken, stagedUploadMutation, {
+    input: [stagedInput],
   });
+
+  if (isRetryableShopifyError(stagedUploadData)) {
+    await sleep(800);
+    stagedUploadData = await shopifyGraphql(storeDomain, accessToken, stagedUploadMutation, {
+      input: [stagedInput],
+    });
+  }
 
   const stagedUserErrors = stagedUploadData?.data?.stagedUploadsCreate?.userErrors || [];
   if (stagedUploadData.errors || stagedUserErrors.length > 0) {
@@ -142,6 +180,8 @@ export async function createStagedUploadTarget({ fileName, fileType }) {
     mimeType,
     resourceType,
     stagedMimeType,
+    stagedFilename,
+    originalFileName: fileName,
   };
 }
 

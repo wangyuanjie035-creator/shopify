@@ -1871,7 +1871,8 @@
       throw new Error(initJson.message || 'Staged Upload 初始化失败');
     }
 
-    const { stagedTarget, contentCategory } = initJson;
+    const { stagedTarget, contentCategory, stagedFilename } = initJson;
+    const uploadFileName = stagedFilename || file.name;
     const parameters = Array.isArray(stagedTarget.parameters) ? stagedTarget.parameters : [];
     const hasPolicy = parameters.some((param) => param.name === 'policy');
 
@@ -1879,7 +1880,7 @@
     if (hasPolicy) {
       const formData = new FormData();
       parameters.forEach((param) => formData.append(param.name, param.value));
-      formData.append('file', file, file.name);
+      formData.append('file', file, uploadFileName);
       uploadResp = await fetch(stagedTarget.url, { method: 'POST', body: formData });
     } else {
       const contentTypeParam = parameters.find((param) => param.name === 'content_type');

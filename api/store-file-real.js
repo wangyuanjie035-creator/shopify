@@ -34,8 +34,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: '缺少必要参数：fileName' });
       }
 
-      const staged = await createStagedUploadTarget({ fileName, fileType });
-      console.log(`📁 Staged Upload 初始化: ${fileName}, 大小: ${fileSize || 'unknown'}`);
+      const staged = await createStagedUploadTarget({ fileName, fileType, fileSize });
+      console.log(`📁 Staged Upload 初始化: ${fileName}, 大小: ${fileSize || 'unknown'}, staged: ${staged.stagedFilename}`);
 
       return res.status(200).json({
         success: true,
@@ -48,6 +48,7 @@ export default async function handler(req, res) {
         contentCategory: staged.contentCategory,
         mimeType: staged.mimeType,
         stagedMimeType: staged.stagedMimeType,
+        stagedFilename: staged.stagedFilename,
       });
     }
 
@@ -87,8 +88,13 @@ export default async function handler(req, res) {
 
     console.log(`📁 Base64 上传: ${fileName}, 大小: ${bufferSize} 字节`);
 
-    const staged = await createStagedUploadTarget({ fileName, fileType });
-    await uploadBufferToStagedTarget(staged.stagedTarget, fileBuffer, fileName, staged.mimeType);
+    const staged = await createStagedUploadTarget({ fileName, fileType, fileSize: bufferSize });
+    await uploadBufferToStagedTarget(
+      staged.stagedTarget,
+      fileBuffer,
+      staged.stagedFilename || fileName,
+      staged.mimeType,
+    );
 
     const result = await finalizeShopifyFileUpload({
       stagedTarget: staged.stagedTarget,
