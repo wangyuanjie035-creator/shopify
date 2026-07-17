@@ -97,6 +97,16 @@ export const DEFAULT_QUOTE_RATES = {
   simplePartMaxRemovalRatio: 0.30,
   simplePartMaxFeatureUnits: 3.5,
   simplePartMaxFaceCount: 48,
+  /** 低去除量板件（侧孔/薄板）：去除≤25cm³ 且 去除比≤10% */
+  lowRemovalMaxCm3: 25,
+  lowRemovalMaxRatio: 0.10,
+  simplePartMaxHolesLowRemoval: 15,
+  simplePartMaxCoreUnitsLowRemoval: 10,
+  /** 简单件表面单价 ¥/dm²（竞品小件约 3–6 元/dm²） */
+  simpleFinishingSandblastAnodizePerDm2: 4.2,
+  simpleFinishingAnodizePerDm2: 3.5,
+  simpleFinishingSandblastPerDm2: 2.8,
+  simpleFinishingGenericPerDm2: 3.2,
   /** 简单件加工时长折扣；复杂件溢价 */
   simpleMachiningFactor: 0.58,
   complexMachiningFactor: 1.32,
@@ -143,6 +153,15 @@ export const SMALL_BATCH_ADJUSTMENTS = {
   finishingSandblastAnodizePerDm2: 58,
   finishingSandblastPerDm2: 32,
   finishingGenericPerDm2: 38,
+  /** 简单件小批量：表面/装夹/开料贴近外协平台 */
+  simpleFinishingSandblastAnodizePerDm2: 5.5,
+  simpleFinishingAnodizePerDm2: 4.5,
+  simpleFinishingSandblastPerDm2: 3.5,
+  simpleFinishingGenericPerDm2: 4,
+  simpleMaterialMinBillingG: 0,
+  simpleFixtureFeeCny: 0,
+  simpleMrrScale: 0.35,
+  simpleFeatureTimeMultiplier: 0.72,
 };
 
 function roundMoney(value) {
@@ -187,6 +206,14 @@ export function resolveQuantityRates(baseRates, quantity, options = {}) {
       finishingSandblastAnodizePerDm2: adj.finishingSandblastAnodizePerDm2 ?? baseRates.finishingSandblastAnodizePerDm2,
       finishingSandblastPerDm2: adj.finishingSandblastPerDm2 ?? baseRates.finishingSandblastPerDm2,
       finishingGenericPerDm2: adj.finishingGenericPerDm2 ?? baseRates.finishingGenericPerDm2,
+      simpleFinishingSandblastAnodizePerDm2: adj.simpleFinishingSandblastAnodizePerDm2 ?? baseRates.simpleFinishingSandblastAnodizePerDm2,
+      simpleFinishingAnodizePerDm2: adj.simpleFinishingAnodizePerDm2 ?? baseRates.simpleFinishingAnodizePerDm2,
+      simpleFinishingSandblastPerDm2: adj.simpleFinishingSandblastPerDm2 ?? baseRates.simpleFinishingSandblastPerDm2,
+      simpleFinishingGenericPerDm2: adj.simpleFinishingGenericPerDm2 ?? baseRates.simpleFinishingGenericPerDm2,
+      simpleMaterialMinBillingG: adj.simpleMaterialMinBillingG ?? 0,
+      simpleFixtureFeeCny: adj.simpleFixtureFeeCny ?? 0,
+      simpleMrrScale: adj.simpleMrrScale ?? 0.35,
+      simpleFeatureTimeMultiplier: adj.simpleFeatureTimeMultiplier ?? 0.72,
     },
     tier: 'small-batch',
     tierLabel: '单件小批量',
@@ -251,6 +278,7 @@ export function estimateSurfaceAreaDm2(geometry = {}) {
 }
 
 export function computeFinishingComplexityMultiplier(complexity = {}, feature = {}) {
+  if (complexity.isSimple) return 1;
   let mult = 1;
   mult += (complexity.score ?? 0) * 0.35;
   mult += Math.min((feature.holeCount ?? 0) * 0.012, 0.15);
@@ -262,30 +290,39 @@ export function computeFinishingComplexityMultiplier(complexity = {}, feature = 
   return roundMoney(Math.max(0.82, Math.min(mult, 1.75)));
 }
 
-function resolveFinishingProfile(finishingText, rates) {
+function resolveFinishingProfile(finishingText, rates, complexity) {
   const text = String(finishingText || '').trim();
+  const simple = complexity?.isSimple === true;
   if (/喷砂.*阳极|阳极.*喷砂/.test(text)) {
     return {
       label: '喷砂+阳极',
-      perDm2: rates.finishingSandblastAnodizePerDm2 ?? 32,
+      perDm2: simple
+        ? (rates.simpleFinishingSandblastAnodizePerDm2 ?? 4.2)
+        : (rates.finishingSandblastAnodizePerDm2 ?? 32),
     };
   }
   if (/阳极/.test(text)) {
     return {
       label: '阳极',
-      perDm2: rates.finishingAnodizePerDm2 ?? 28,
+      perDm2: simple
+        ? (rates.simpleFinishingAnodizePerDm2 ?? 3.5)
+        : (rates.finishingAnodizePerDm2 ?? 28),
     };
   }
   if (/喷砂/.test(text)) {
     return {
       label: '喷砂',
-      perDm2: rates.finishingSandblastPerDm2 ?? 18,
+      perDm2: simple
+        ? (rates.simpleFinishingSandblastPerDm2 ?? 2.8)
+        : (rates.finishingSandblastPerDm2 ?? 18),
     };
   }
   if (/电镀|喷涂|氧化|抛光|拉丝|喷漆|烤漆|丝印|激光打标|UV打印|喷油/.test(text)) {
     return {
       label: '其它表面',
-      perDm2: rates.finishingGenericPerDm2 ?? 22,
+      perDm2: simple
+        ? (rates.simpleFinishingGenericPerDm2 ?? 3.2)
+        : (rates.finishingGenericPerDm2 ?? 22),
     };
   }
   return null;
@@ -301,7 +338,7 @@ export function estimateFinishingFee(finishing, rates, geometry = {}, feature = 
     return { fee: 0, detail: null, areaDm2: 0, complexityMult: 1, label: null };
   }
 
-  const profile = resolveFinishingProfile(text, rates);
+  const profile = resolveFinishingProfile(text, rates, complexity);
   if (!profile) {
     return { fee: 0, detail: null, areaDm2: 0, complexityMult: 1, label: null };
   }
@@ -409,6 +446,28 @@ export function resolveFeatureInput(input = {}) {
   };
 }
 
+export function isLowRemovalMachining(geometry, rates = DEFAULT_QUOTE_RATES) {
+  const removalCm3 = geometry.removalCm3 ?? 0;
+  const bboxCm3 = geometry.bboxCm3 ?? geometry.volumeCm3 ?? 0;
+  const removalRatio = bboxCm3 > 0 ? removalCm3 / bboxCm3 : 0;
+  return removalCm3 <= (rates.lowRemovalMaxCm3 ?? 25)
+    && removalRatio <= (rates.lowRemovalMaxRatio ?? 0.10);
+}
+
+export function applySimplePartRateAdjustments(rates, complexity, tier) {
+  if (!complexity?.isSimple) return rates;
+  const next = {
+    ...rates,
+    materialMinBillingG: rates.simpleMaterialMinBillingG ?? 0,
+    fixtureFeeCny: rates.simpleFixtureFeeCny ?? 0,
+  };
+  if (tier === 'small-batch') {
+    next.mrrScale = rates.simpleMrrScale ?? 0.35;
+    next.featureTimeScale = (rates.featureTimeScale ?? 1) * (rates.simpleFeatureTimeMultiplier ?? 0.72);
+  }
+  return next;
+}
+
 export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_RATES) {
   const removalCm3 = geometry.removalCm3 ?? 0;
   const volumeCm3 = geometry.volumeCm3 ?? 0;
@@ -441,10 +500,11 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
     0,
   ), 1));
 
+  const lowRemovalPlate = isLowRemovalMachining(geometry, rates);
   const lowRemoval = removalCm3 <= (rates.simplePartMaxRemovalCm3 ?? 2.8)
     || removalRatio <= 0.10;
 
-  const isSimple = lowRemoval
+  let isSimple = lowRemoval
     && removalRatio <= (rates.simplePartMaxRemovalRatio ?? 0.30)
     && coreFeatureUnits <= (rates.simplePartMaxFeatureUnits ?? 3.5)
     && faceCount <= (rates.simplePartMaxFaceCount ?? 48)
@@ -452,10 +512,22 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
     && (feature.shaftCount || 0) === 0
     && (feature.holeCount || 0) <= 6;
 
+  if (lowRemovalPlate
+    && (feature.holeCount || 0) <= (rates.simplePartMaxHolesLowRemoval ?? 15)
+    && coreFeatureUnits <= (rates.simplePartMaxCoreUnitsLowRemoval ?? 10)
+    && faceCount <= 55
+    && (feature.cavityCount || 0) === 0
+    && (feature.shaftCount || 0) === 0) {
+    isSimple = true;
+  }
+
   let level = 'standard';
-  if (isSimple) level = 'simple';
-  else if (
-    score >= 0.55
+  if (isSimple) {
+    level = 'simple';
+  } else if (lowRemovalPlate) {
+    if ((feature.holeCount || 0) > 22 || faceCount > 70) level = 'complex';
+  } else if (
+    score >= 0.62
     || removalCm3 > 40
     || (feature.holeCount || 0) > 12
     || faceCount > 90
@@ -468,6 +540,7 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
     level,
     score,
     isSimple,
+    lowRemovalPlate,
     removalRatio: roundMoney(removalRatio),
     removalIntensity: roundMoney(removalIntensity),
     featureUnits,
@@ -650,17 +723,18 @@ export function estimateQuote(input = {}) {
   const baseRates = { ...DEFAULT_QUOTE_RATES, ...(input.rates || {}) };
   const material = resolveMaterialProfile(input.material, input.materialCategory);
   const quantity = Math.max(1, parseInt(input.quantity, 10) || 1);
-  const { rates, tier, tierLabel, quoteMode } = resolveQuantityRates(
+  const { rates: quantityRates, tier, tierLabel, quoteMode } = resolveQuantityRates(
     baseRates,
     quantity,
     { pricingTier: input.pricingTier },
   );
-  const hourly = rates.machineHourlyCny;
 
   const geometry = resolveGeometryInput(input);
   const feature = resolveFeatureInput(input);
   const finishingText = input.finishing ?? input.surfaceTreatment;
-  const complexity = classifyPartComplexity(geometry, feature, rates);
+  const complexity = classifyPartComplexity(geometry, feature, quantityRates);
+  const rates = applySimplePartRateAdjustments(quantityRates, complexity, tier);
+  const hourly = rates.machineHourlyCny;
 
   const { materialCost, blankMassG, blankCm3, pricePerKg } = computeBlankMaterialCost(geometry, material, rates);
   const partMassG = geometry.volumeCm3 != null
@@ -807,7 +881,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.6',
+    formulaVersion: '1.6.1',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : 'feature-driven-market',
