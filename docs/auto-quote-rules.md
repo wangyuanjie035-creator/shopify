@@ -7,7 +7,8 @@
 **加工/时长以 Palmetto 特征为主**（孔、圆角、型腔、面数、去除量），不是只看包络尺寸。
 
 行业 Excel 对标详见：[quote-benchmark-xls.md](./quote-benchmark-xls.md)  
-校验命令：`node scripts/compare-xls-benchmark.mjs`
+WorkBuddy 参数化公式对标：[quote-benchmark-workbuddy.md](./quote-benchmark-workbuddy.md)  
+校验命令：`node scripts/compare-xls-benchmark.mjs` · `node scripts/compare-workbuddy-benchmark.mjs`
 
 ## 零件复杂度档位
 
