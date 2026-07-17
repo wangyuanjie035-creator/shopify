@@ -1,9 +1,13 @@
 /**
- * CNC 自动报价引擎 v1.6.2 — 壳体/塑料件近净料计价
+ * CNC 自动报价引擎 v1.6.3 — 对标行业报价表 + 批量折扣
  *
  * 加工/时长以 Palmetto 特征（孔/圆角/型腔/面数/去除量）为主，尺寸仅作辅助；
  * 大尺寸低特征简单件不应被包络尺寸单独抬高价格。
  */
+
+import {
+  resolveXlsBatchQuantityDiscount,
+} from './quote-benchmark-xls.js';
 
 export const TAX_RATE = 0.13;
 export const SHIPPING_CNY = 4;
@@ -839,8 +843,22 @@ export function estimateQuote(input = {}) {
   const finishingResult = estimateFinishingFee(finishingText, rates, geometry, feature, complexity, material);
   const finishingFee = roundMoney(finishingResult.fee);
   const fixtureFee = roundMoney(rates.fixtureFeeCny ?? 0);
-  const processCost = roundMoney(materialCost + setupCost + featureCost + finishingFee + fixtureFee);
-  const manufacturingSubtotal = roundMoney(processCost + durationCost);
+  const laborSubtotal = roundMoney(setupCost + featureCost + durationCost + finishingFee + fixtureFee);
+  const processCost = roundMoney(materialCost + laborSubtotal);
+
+  let quantityDiscount = 0;
+  let quantityDiscountLabel = null;
+  let quantityDiscountMultiplier = 1;
+  if (tier === 'standard' && quantity >= 2) {
+    const batchDiscount = resolveXlsBatchQuantityDiscount(quantity);
+    quantityDiscountMultiplier = batchDiscount.multiplier;
+    quantityDiscountLabel = batchDiscount.label;
+    if (quantityDiscountMultiplier < 1) {
+      quantityDiscount = roundMoney(laborSubtotal * (1 - quantityDiscountMultiplier));
+    }
+  }
+
+  const manufacturingSubtotal = roundMoney(processCost - quantityDiscount);
 
   const machineTimeCost = roundMoney(setupCost + featureCost + durationCost);
   const setupMinutesPerUnit = roundMoney(setupMinutes / quantity);
@@ -952,6 +970,10 @@ export function estimateQuote(input = {}) {
       featureUnits: complexity.featureUnits,
       faceCount: complexity.faceCount,
       finishing: finishingFee,
+      laborSubtotal,
+      quantityDiscount,
+      quantityDiscountMultiplier,
+      quantityDiscountLabel,
     },
     geometry: {
       ...geometry,
@@ -965,7 +987,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.6.2',
+    formulaVersion: '1.6.3',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : 'feature-driven-market',
@@ -1013,6 +1035,12 @@ export function buildQuoteShopifyAttributes(quote) {
 
   if (b.fixtureFee > 0) {
     attrs.push({ key: '装夹费', value: `¥${b.fixtureFee}` });
+  }
+  if (b.quantityDiscount > 0) {
+    attrs.push({
+      key: '批量折扣',
+      value: `-¥${b.quantityDiscount} (${b.quantityDiscountLabel} ×${b.quantityDiscountMultiplier})`,
+    });
   }
   if (b.finishingFee > 0) {
     const finishDetail = b.finishingDetail ? ` (${b.finishingDetail})` : '';
