@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       message: 'calculate-quote API is ready',
-      formulaVersion: '1.0',
+      formulaVersion: '1.5',
       timestamp: new Date().toISOString(),
     });
   }

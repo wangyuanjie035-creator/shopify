@@ -30,6 +30,7 @@ function main() {
       material: item.material,
       finishing: item.finishing || '无',
       quantity: 1,
+      pricingTier: 'standard',
     });
 
     const errPct = ((quote.unitPrice - item.price) / item.price) * 100;

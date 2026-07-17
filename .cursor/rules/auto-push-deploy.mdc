@@ -1,0 +1,17 @@
+---
+description: 代码修改完成后自动 commit 并推送到 origin/test-muti 与 target/main
+alwaysApply: true
+---
+
+# 自动推送部署
+
+完成本仓库的功能修改、bug 修复或配置更新后，**无需用户再次提醒**，在任务结束时自动执行：
+
+1. `git status` / `git diff` 确认变更范围
+2. 只 stage 相关源码（不含 `.tmp_*`、`node_modules/`、`.vscode/` 等临时文件）
+3. 创建语义化 commit（`feat:` / `fix:` / `docs:` 等）
+4. 依次推送：
+   - `git push origin test-muti`
+   - `git push target test-muti:main`（Vercel 生产）
+
+若本次仅为问答、无文件改动，或用户明确要求不要推送，则跳过。

@@ -1,13 +1,10 @@
 /**
- * CNC 自动报价引擎 v1.4.1 — 市场成本价（不含利润、无最低接单额）
+ * CNC 自动报价引擎 v1.5 — 单件小批量市场价 + 批量成本价
  *
- * 总价(成本) = 加工工艺费 + 加工时长费 + 运费 + 税费
+ * 总价 = 加工工艺费 + 加工时长费 + 运费 + 税费
  *
- * 加工工艺费 = 毛坯材料费 + 编程调机 + 特征工序 + 表面处理
- * 加工时长费 = 去除体积 ÷ MRR × 机时费率 + 大去除量附加 + 复杂度附加时长
- *
- * v1.4.1 以 4 单历史成本价校准（MAPE ~1.6%）：机时/MRR/特征时长/黄铜系数
- * 不叠加利润率；税费/运费按实际成本计入。
+ * qty=1：材料/加工/表面按外协平台小批量标准（保守 MRR、最低开料、装夹费等）
+ * qty≥2：沿用 v1.4.1 四单成本价校准系数，调机费随数量摊薄
  */
 
 export const TAX_RATE = 0.13;
@@ -112,12 +109,72 @@ export const DEFAULT_QUOTE_RATES = {
   finishingSandblastAnodize: 50,
 };
 
+/** qty=1 小批量：对标外协平台单件报价（保守工时 + 零售材料 + 装夹/开料最低消费） */
+export const SMALL_BATCH_MAX_QTY = 1;
+
+export const SMALL_BATCH_ADJUSTMENTS = {
+  materialPriceMultiplier: 1.65,
+  materialScrapFactor: 1.45,
+  materialMinBillingG: 480,
+  /** 切削/工序机时（外协单件溢价） */
+  machineHourlyCny: 165,
+  /** 编程调机仍按基础机时，对标平台「工程费」 */
+  setupMachineHourlyCny: 110,
+  setupMinutesStandard: 12,
+  setupMinutesSimple: 8,
+  mrrScale: 0.10,
+  featureTimeScaleMultiplier: 1.35,
+  finishMinPerPartVolumeCm3: 0.06,
+  fixtureFeeCny: 15,
+  finishingAnodize: 76,
+  finishingSandblastAnodize: 76,
+};
+
 function roundMoney(value) {
   return Math.round(value * 100) / 100;
 }
 
 function minutesToCost(minutes, hourlyRate) {
   return roundMoney((minutes / 60) * hourlyRate);
+}
+
+/**
+ * @returns {{ rates: object, tier: 'small-batch' | 'standard', tierLabel: string, quoteMode: string }}
+ */
+export function resolveQuantityRates(baseRates, quantity, options = {}) {
+  const forceTier = options.pricingTier;
+  if (forceTier === 'standard' || (forceTier !== 'small-batch' && quantity > SMALL_BATCH_MAX_QTY)) {
+    return {
+      rates: baseRates,
+      tier: 'standard',
+      tierLabel: '标准批量',
+      quoteMode: QUOTE_MODE,
+    };
+  }
+
+  const adj = SMALL_BATCH_ADJUSTMENTS;
+  const featureScale = (baseRates.featureTimeScale ?? 1) * (adj.featureTimeScaleMultiplier ?? 1);
+  return {
+    rates: {
+      ...baseRates,
+      machineHourlyCny: adj.machineHourlyCny ?? baseRates.machineHourlyCny,
+      setupMachineHourlyCny: adj.setupMachineHourlyCny ?? baseRates.machineHourlyCny,
+      setupMinutesStandard: adj.setupMinutesStandard ?? baseRates.setupMinutesStandard,
+      setupMinutesSimple: adj.setupMinutesSimple ?? baseRates.setupMinutesSimple,
+      materialScrapFactor: adj.materialScrapFactor ?? baseRates.materialScrapFactor,
+      materialPriceMultiplier: adj.materialPriceMultiplier ?? 1,
+      materialMinBillingG: adj.materialMinBillingG ?? 0,
+      mrrScale: adj.mrrScale ?? 1,
+      featureTimeScale: featureScale,
+      finishMinPerPartVolumeCm3: adj.finishMinPerPartVolumeCm3 ?? baseRates.finishMinPerPartVolumeCm3,
+      fixtureFeeCny: adj.fixtureFeeCny ?? 0,
+      finishingAnodize: adj.finishingAnodize ?? baseRates.finishingAnodize,
+      finishingSandblastAnodize: adj.finishingSandblastAnodize ?? baseRates.finishingSandblastAnodize,
+    },
+    tier: 'small-batch',
+    tierLabel: '单件小批量',
+    quoteMode: 'small-batch-market',
+  };
 }
 
 export function normalizeMaterialKey(material) {
@@ -319,7 +376,9 @@ function resolveMaterialMrr(material, rates) {
     '塑料': rates.mrrPlastic,
   };
   const override = byCategory[material.category];
-  return Math.max(override ?? material.mrrCm3PerMin ?? 10, 0.5);
+  const base = Math.max(override ?? material.mrrCm3PerMin ?? 10, 0.5);
+  const scale = rates.mrrScale ?? 1;
+  return roundMoney(Math.max(base * scale, 0.3));
 }
 
 function computeFeatureMinutes(feature, rates, featureFactor, material) {
@@ -371,33 +430,47 @@ function computeBlankMaterialCost(geometry, material, rates) {
   if (blankCm3 == null) return { materialCost: 0, blankMassG: null, blankCm3: null };
 
   const scrapFactor = rates.materialScrapFactor ?? 1.10;
-  const blankMassG = roundMoney(blankCm3 * material.density * scrapFactor);
-  const materialCost = roundMoney((blankMassG / 1000) * material.pricePerKg);
-  return { materialCost, blankMassG, blankCm3: roundMoney(blankCm3) };
+  const priceMultiplier = rates.materialPriceMultiplier ?? 1;
+  const pricePerKg = roundMoney(material.pricePerKg * priceMultiplier);
+  let blankMassG = roundMoney(blankCm3 * material.density * scrapFactor);
+  const minBillingG = rates.materialMinBillingG ?? 0;
+  if (minBillingG > 0) blankMassG = Math.max(blankMassG, minBillingG);
+  const materialCost = roundMoney((blankMassG / 1000) * pricePerKg);
+  return { materialCost, blankMassG, blankCm3: roundMoney(blankCm3), pricePerKg };
 }
 
-function buildProcessDetail(materialCost, setupCost, featureCost, finishingFee, material, complexity, hourly) {
+function buildProcessDetail(materialCost, setupCost, featureCost, finishingFee, fixtureFee, material, complexity, hourly) {
   const parts = [
     `毛坯材料¥${materialCost}`,
     `调机¥${setupCost}`,
     `工序¥${featureCost}`,
   ];
+  if (fixtureFee > 0) parts.push(`装夹¥${fixtureFee}`);
   if (finishingFee > 0) parts.push(`表面¥${finishingFee}`);
   const tag = complexity?.level === 'simple' ? ' 简单件' : '';
   return `${parts.join('+')} (${material.key} ¥${hourly}/h${tag})`;
 }
 
-function buildDurationDetail(machining, featureMin, hourly, material) {
-  return `切削${machining.minutes}min×¥${hourly}/h MRR${material.mrrCm3PerMin} 工序${featureMin}min`;
+function buildDurationDetail(machining, hourly) {
+  return `切削${machining.minutes}min×¥${hourly}/h MRR${machining.mrr}`;
+}
+
+function buildTimeSummary(setupMinutes, featureMinutes, machiningMinutes) {
+  return `调机${setupMinutes}min+工序${featureMinutes}min+切削${machiningMinutes}min`;
 }
 
 /**
  * @param {object} input
  */
 export function estimateQuote(input = {}) {
-  const rates = { ...DEFAULT_QUOTE_RATES, ...(input.rates || {}) };
+  const baseRates = { ...DEFAULT_QUOTE_RATES, ...(input.rates || {}) };
   const material = resolveMaterialProfile(input.material, input.materialCategory);
   const quantity = Math.max(1, parseInt(input.quantity, 10) || 1);
+  const { rates, tier, tierLabel, quoteMode } = resolveQuantityRates(
+    baseRates,
+    quantity,
+    { pricingTier: input.pricingTier },
+  );
   const hourly = rates.machineHourlyCny;
 
   const geometry = resolveGeometryInput(input);
@@ -405,13 +478,14 @@ export function estimateQuote(input = {}) {
   const finishingText = input.finishing ?? input.surfaceTreatment;
   const complexity = classifyPartComplexity(geometry, feature, rates);
 
-  const { materialCost, blankMassG, blankCm3 } = computeBlankMaterialCost(geometry, material, rates);
+  const { materialCost, blankMassG, blankCm3, pricePerKg } = computeBlankMaterialCost(geometry, material, rates);
   const partMassG = geometry.volumeCm3 != null
     ? roundMoney(geometry.volumeCm3 * material.density)
     : null;
 
   const setupMinutes = resolveSetupMinutes(complexity, rates);
-  const setupCost = minutesToCost(setupMinutes, hourly * material.machiningFactor) / quantity;
+  const setupHourly = rates.setupMachineHourlyCny ?? hourly;
+  const setupCost = minutesToCost(setupMinutes, setupHourly * material.machiningFactor) / quantity;
 
   const featureMinutes = computeFeatureMinutes(feature, rates, material.featureFactor, material);
   const featureCost = minutesToCost(featureMinutes, hourly * material.machiningFactor);
@@ -421,14 +495,19 @@ export function estimateQuote(input = {}) {
   const durationCost = roundMoney(minutesToCost(machining.minutes, hourly) + removalSurcharge);
 
   const finishingFee = roundMoney(estimateFinishingFee(finishingText, rates));
-  const processCost = roundMoney(materialCost + setupCost + featureCost + finishingFee);
+  const fixtureFee = roundMoney(rates.fixtureFeeCny ?? 0);
+  const processCost = roundMoney(materialCost + setupCost + featureCost + finishingFee + fixtureFee);
   const manufacturingSubtotal = roundMoney(processCost + durationCost);
+
+  const machineTimeCost = roundMoney(setupCost + featureCost + durationCost);
+  const setupMinutesPerUnit = roundMoney(setupMinutes / quantity);
+  const estimatedMinutes = roundMoney(setupMinutesPerUnit + featureMinutes + machining.minutes);
+  const timeSummary = buildTimeSummary(setupMinutesPerUnit, featureMinutes, machining.minutes);
 
   const subtotalBeforeTax = roundMoney(manufacturingSubtotal + SHIPPING_CNY);
   const tax = roundMoney(subtotalBeforeTax * TAX_RATE);
   const unitTotal = roundMoney(subtotalBeforeTax + tax);
   const lineTotal = roundMoney(unitTotal * quantity);
-  const estimatedMinutes = roundMoney(setupMinutes / quantity + featureMinutes + machining.minutes);
 
   const reviewReasons = [...feature.reviewReasons];
   let autoQuoteEligible = feature.status === 'ok' || feature.status === 'partial';
@@ -478,15 +557,18 @@ export function estimateQuote(input = {}) {
     quantity,
     unitPrice: unitTotal,
     totalPrice: lineTotal,
-    quoteMode: QUOTE_MODE,
-    pricingBasis: PRICING_BASIS,
+    quoteMode,
+    pricingBasis: tier === 'small-batch' ? 'small-batch-market' : PRICING_BASIS,
+    pricingTier: tier,
+    pricingTierLabel: tierLabel,
     material: {
       key: material.key,
       label: material.label,
       category: material.category,
       density: material.density,
-      pricePerKg: material.pricePerKg,
-      mrrCm3PerMin: material.mrrCm3PerMin,
+      pricePerKg: pricePerKg ?? material.pricePerKg,
+      listPricePerKg: material.pricePerKg,
+      mrrCm3PerMin: machining.mrr,
       featureFactor: material.featureFactor,
       machiningFactor: material.machiningFactor,
     },
@@ -497,16 +579,21 @@ export function estimateQuote(input = {}) {
       materialCost,
       blankCm3,
       setupCost,
-      setupMinutes: roundMoney(setupMinutes / quantity),
+      setupMinutes: setupMinutesPerUnit,
       featureCost,
       featureMinutes,
       machiningMinutes: machining.minutes,
       removalSurcharge,
       machineHourlyCny: hourly,
       mrrCm3PerMin: machining.mrr,
+      fixtureFee,
+      machineTimeCost,
+      timeSummary,
       finishingFee,
-      processDetail: buildProcessDetail(materialCost, setupCost, featureCost, finishingFee, material, complexity, hourly),
-      durationDetail: buildDurationDetail(machining, featureMinutes, hourly, material),
+      processDetail: buildProcessDetail(
+        materialCost, setupCost, featureCost, finishingFee, fixtureFee, material, complexity, hourly,
+      ),
+      durationDetail: buildDurationDetail(machining, hourly),
       estimatedMinutes,
       shipping: SHIPPING_CNY,
       tax,
@@ -529,8 +616,10 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.4.1',
-    calibrationSource: '4-order-cost-benchmark',
+    formulaVersion: '1.5',
+    calibrationSource: tier === 'small-batch'
+      ? 'small-batch-market'
+      : '4-order-cost-benchmark',
   };
 }
 
@@ -540,30 +629,40 @@ export function buildQuoteShopifyAttributes(quote) {
   const b = quote.breakdown;
   const m = quote.material;
 
+  const priceTag = quote.pricingTier === 'small-batch' ? '(小批量)' : '(成本)';
+  const modeLabel = quote.pricingTier === 'small-batch'
+    ? '单件小批量市场价'
+    : '市场成本价(不含利润)';
+
   const attrs = [
     {
       key: '自动估价',
-      value: quote.autoQuoteEligible ? `¥${quote.unitPrice}(成本)` : '待人工报价',
+      value: quote.autoQuoteEligible ? `¥${quote.unitPrice}${priceTag}` : '待人工报价',
     },
-    { key: '估价模式', value: '市场成本价(不含利润)' },
+    { key: '估价模式', value: modeLabel },
+    { key: '数量档位', value: quote.pricingTierLabel || '标准批量' },
     { key: '估价置信度', value: quote.confidence === 'high' ? '高' : quote.confidence === 'medium' ? '中(简单件)' : '需复核' },
     { key: '估价数量', value: String(quote.quantity) },
     { key: '估价总价', value: `¥${quote.totalPrice}` },
     { key: '加工工艺费', value: `¥${b.processCost} (${b.processDetail})` },
     { key: '加工时长费', value: `¥${b.durationCost} (${b.durationDetail})` },
-    { key: '预估加工时长', value: `${b.estimatedMinutes} 分钟` },
+    { key: '机时合计', value: `¥${b.machineTimeCost} (调机+工序+切削)` },
+    { key: '预估加工时长', value: `${b.estimatedMinutes} 分钟 (${b.timeSummary})` },
     { key: '机时费率', value: `¥${b.machineHourlyCny}/h` },
     { key: '运费', value: `¥${b.shipping}` },
     { key: '税费', value: `¥${b.tax}` },
     { key: '材料大类', value: m.category },
     { key: '材料牌号', value: m.label },
-    { key: '材料费', value: `¥${b.materialCost}(毛坯)` },
+    { key: '材料费', value: `¥${b.materialCost}(毛坯${quote.pricingTier === 'small-batch' ? '/最低开料' : ''})` },
     { key: '材料单价', value: `¥${m.pricePerKg}/kg` },
     { key: 'MRR', value: `${m.mrrCm3PerMin} cm³/min` },
     { key: '开机费', value: `¥${b.setupCost} (${b.setupMinutes}min)` },
     { key: '特征加工费', value: `¥${b.featureCost}` },
   ];
 
+  if (b.fixtureFee > 0) {
+    attrs.push({ key: '装夹费', value: `¥${b.fixtureFee}` });
+  }
   if (b.finishingFee > 0) {
     attrs.push({ key: '表面处理费', value: `¥${b.finishingFee}` });
   }
