@@ -1,5 +1,5 @@
 /**
- * CNC 自动报价引擎 v1.6.4 — 小件低去除标准件校准
+ * CNC 自动报价引擎 v1.6.5 — 薄板多孔/小面积表面分级
  *
  * 加工/时长以 Palmetto 特征（孔/圆角/型腔/面数/去除量）为主，尺寸仅作辅助；
  * 大尺寸低特征简单件不应被包络尺寸单独抬高价格。
@@ -110,6 +110,13 @@ export const DEFAULT_QUOTE_RATES = {
   lowRemovalBlankRemovalFactor: 1.05,
   lowRemovalCavityEach: 2.5,
   lowRemovalSetupMinutesStandard: 8,
+  lowRemovalSmallAreaFinishingDm2: 1.5,
+  lowRemovalSmallAreaFinishingSandblastAnodizePerDm2: 5.5,
+  lowRemovalSmallAreaFinishingComplexityCap: 1.0,
+  lowRemovalManyHolesThreshold: 12,
+  lowRemovalLargeHoleMinutes: 1.2,
+  lowRemovalStandardHoleMinutes: 0.38,
+  lowRemovalManyHolesMaterialMinBillingG: 300,
   complexScoreThreshold: 0.72,
   simplePartMaxHolesLowRemoval: 15,
   simplePartMaxCoreUnitsLowRemoval: 10,
@@ -187,10 +194,19 @@ export const SMALL_BATCH_ADJUSTMENTS = {
   lowRemovalFixtureFeeCny: 0,
   lowRemovalFinishingSandblastAnodizePerDm2: 48,
   lowRemovalFinishingAnodizePerDm2: 40,
+  /** 小面积(<1.5dm²)喷砂+阳极按平台小件价 */
+  lowRemovalSmallAreaFinishingDm2: 1.5,
+  lowRemovalSmallAreaFinishingSandblastAnodizePerDm2: 5.5,
   lowRemovalFinishingComplexityCap: 1.05,
+  lowRemovalSmallAreaFinishingComplexityCap: 1.0,
   lowRemovalFeatureTimeMultiplier: 0.88,
   lowRemovalCavityEach: 2.5,
   lowRemovalSetupMinutesStandard: 8,
+  /** 薄板多孔：>12孔或大孔时降工序分钟 */
+  lowRemovalManyHolesThreshold: 12,
+  lowRemovalLargeHoleMinutes: 1.2,
+  lowRemovalStandardHoleMinutes: 0.38,
+  lowRemovalManyHolesMaterialMinBillingG: 300,
   /** 壳体/空心件：开料按近净料，不按满包络 */
   shellStockRemovalFactor: 0.42,
   shellRemovalVolumeRatio: 4,
@@ -260,6 +276,16 @@ export function resolveQuantityRates(baseRates, quantity, options = {}) {
         ?? baseRates.lowRemovalFinishingAnodizePerDm2,
       lowRemovalFinishingComplexityCap: adj.lowRemovalFinishingComplexityCap
         ?? baseRates.lowRemovalFinishingComplexityCap,
+      lowRemovalSmallAreaFinishingDm2: baseRates.lowRemovalSmallAreaFinishingDm2,
+      lowRemovalSmallAreaFinishingSandblastAnodizePerDm2:
+        adj.lowRemovalSmallAreaFinishingSandblastAnodizePerDm2
+        ?? baseRates.lowRemovalSmallAreaFinishingSandblastAnodizePerDm2,
+      lowRemovalSmallAreaFinishingComplexityCap: baseRates.lowRemovalSmallAreaFinishingComplexityCap,
+      lowRemovalManyHolesThreshold: baseRates.lowRemovalManyHolesThreshold,
+      lowRemovalLargeHoleMinutes: baseRates.lowRemovalLargeHoleMinutes,
+      lowRemovalStandardHoleMinutes: baseRates.lowRemovalStandardHoleMinutes,
+      lowRemovalManyHolesMaterialMinBillingG: adj.lowRemovalManyHolesMaterialMinBillingG
+        ?? baseRates.lowRemovalManyHolesMaterialMinBillingG,
       lowRemovalFeatureTimeMultiplier: adj.lowRemovalFeatureTimeMultiplier ?? 0.88,
       lowRemovalCavityEach: adj.lowRemovalCavityEach ?? baseRates.lowRemovalCavityEach,
       lowRemovalSetupMinutesStandard: adj.lowRemovalSetupMinutesStandard
@@ -582,22 +608,44 @@ export function applySimplePartRateAdjustments(rates, complexity, tier) {
   return next;
 }
 
-export function applyLowRemovalPlateAdjustments(rates, complexity, tier) {
+export function applyLowRemovalPlateAdjustments(rates, complexity, tier, geometry = {}, feature = {}) {
   if (tier !== 'small-batch' || !complexity?.lowRemovalPlate || complexity.isSimple) return rates;
   const featMult = rates.lowRemovalFeatureTimeMultiplier ?? 0.88;
-  return {
+  const areaDm2 = estimateSurfaceAreaDm2(geometry);
+  const smallAreaThreshold = rates.lowRemovalSmallAreaFinishingDm2 ?? 1.5;
+  const isSmallArea = areaDm2 > 0 && areaDm2 < smallAreaThreshold;
+  const holeCount = feature.holeCount ?? 0;
+  const manyHoles = holeCount > (rates.lowRemovalManyHolesThreshold ?? 12);
+
+  const next = {
     ...rates,
     lowRemovalNearNetBlank: true,
-    materialMinBillingG: rates.lowRemovalMaterialMinBillingG ?? 0,
+    materialMinBillingG: manyHoles
+      ? (rates.lowRemovalManyHolesMaterialMinBillingG ?? 300)
+      : (rates.lowRemovalMaterialMinBillingG ?? 0),
     fixtureFeeCny: rates.lowRemovalFixtureFeeCny ?? 0,
-    finishingSandblastAnodizePerDm2: rates.lowRemovalFinishingSandblastAnodizePerDm2
-      ?? rates.finishingSandblastAnodizePerDm2,
-    finishingAnodizePerDm2: rates.lowRemovalFinishingAnodizePerDm2 ?? rates.finishingAnodizePerDm2,
-    finishingComplexityCap: rates.lowRemovalFinishingComplexityCap ?? 1.05,
+    finishingSandblastAnodizePerDm2: isSmallArea
+      ? (rates.lowRemovalSmallAreaFinishingSandblastAnodizePerDm2 ?? 5.5)
+      : (rates.lowRemovalFinishingSandblastAnodizePerDm2 ?? rates.finishingSandblastAnodizePerDm2),
+    finishingAnodizePerDm2: isSmallArea
+      ? (rates.simpleFinishingAnodizePerDm2 ?? 4.5)
+      : (rates.lowRemovalFinishingAnodizePerDm2 ?? rates.finishingAnodizePerDm2),
+    finishingComplexityCap: isSmallArea
+      ? (rates.lowRemovalSmallAreaFinishingComplexityCap ?? 1.0)
+      : (rates.lowRemovalFinishingComplexityCap ?? 1.05),
     featureTimeScale: (rates.featureTimeScale ?? 1) * featMult,
     cavityEach: rates.lowRemovalCavityEach ?? rates.cavityEach,
     setupMinutesStandard: rates.lowRemovalSetupMinutesStandard ?? rates.setupMinutesStandard,
   };
+
+  if (manyHoles || (feature.large ?? 0) > 0) {
+    next.largeHole = rates.lowRemovalLargeHoleMinutes ?? 1.2;
+    next.standardHole = rates.lowRemovalStandardHoleMinutes ?? 0.38;
+    next.smallHole = Math.min(next.smallHole ?? rates.smallHole, 0.55);
+    next.counterboredPremium = Math.min(next.counterboredPremium ?? rates.counterboredPremium, 0.25);
+  }
+
+  return next;
 }
 
 export function applyShellPartRateAdjustments(rates, geometry, tier) {
@@ -882,6 +930,8 @@ export function estimateQuote(input = {}) {
       applySimplePartRateAdjustments(quantityRates, complexity, tier),
       complexity,
       tier,
+      geometry,
+      feature,
     ),
     geometry,
     tier,
@@ -1051,7 +1101,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.6.4',
+    formulaVersion: '1.6.5',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : 'feature-driven-market',
