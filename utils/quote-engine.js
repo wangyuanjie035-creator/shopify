@@ -105,23 +105,11 @@ export const DEFAULT_QUOTE_RATES = {
   faceExtraMinEach: 0.08,
   /** 精加工/刀路附加：成品体积 × 分钟/cm³ */
   finishMinPerPartVolumeCm3: 0.015,
-  /** 表面处理：setup + 面积×单价×复杂度，min 为同工艺底价 */
-  finishingMinBillableAreaDm2: 0.55,
-  finishingAnodizeSetup: 16,
-  finishingAnodizePerDm2: 22,
-  finishingAnodizeMin: 38,
-  finishingSandblastAnodizeSetup: 18,
-  finishingSandblastAnodizePerDm2: 26,
-  finishingSandblastAnodizeMin: 48,
-  finishingSandblastSetup: 12,
-  finishingSandblastPerDm2: 16,
-  finishingSandblastMin: 28,
-  finishingGenericSetup: 14,
-  finishingGenericPerDm2: 18,
-  finishingGenericMin: 32,
-  /** @deprecated 保留作底价别名 */
-  finishingAnodize: 38,
-  finishingSandblastAnodize: 48,
+  /** 表面处理：面积×单价×复杂度（无底价、无最低开单面积） */
+  finishingAnodizePerDm2: 28,
+  finishingSandblastAnodizePerDm2: 32,
+  finishingSandblastPerDm2: 18,
+  finishingGenericPerDm2: 22,
 };
 
 /** qty=1 小批量：对标外协平台单件报价（保守工时 + 零售材料 + 装夹/开料最低消费） */
@@ -141,20 +129,10 @@ export const SMALL_BATCH_ADJUSTMENTS = {
   featureTimeScaleMultiplier: 1.35,
   finishMinPerPartVolumeCm3: 0.06,
   fixtureFeeCny: 15,
-  finishingAnodizeSetup: 22,
-  finishingAnodizePerDm2: 32,
-  finishingAnodizeMin: 55,
-  finishingSandblastAnodizeSetup: 26,
-  finishingSandblastAnodizePerDm2: 38,
-  finishingSandblastAnodizeMin: 76,
-  finishingSandblastSetup: 18,
-  finishingSandblastPerDm2: 24,
-  finishingSandblastMin: 45,
-  finishingGenericSetup: 18,
-  finishingGenericPerDm2: 24,
-  finishingGenericMin: 40,
-  finishingAnodize: 55,
-  finishingSandblastAnodize: 76,
+  finishingAnodizePerDm2: 48,
+  finishingSandblastAnodizePerDm2: 58,
+  finishingSandblastPerDm2: 32,
+  finishingGenericPerDm2: 38,
 };
 
 function roundMoney(value) {
@@ -195,20 +173,10 @@ export function resolveQuantityRates(baseRates, quantity, options = {}) {
       featureTimeScale: featureScale,
       finishMinPerPartVolumeCm3: adj.finishMinPerPartVolumeCm3 ?? baseRates.finishMinPerPartVolumeCm3,
       fixtureFeeCny: adj.fixtureFeeCny ?? 0,
-      finishingAnodizeSetup: adj.finishingAnodizeSetup ?? baseRates.finishingAnodizeSetup,
       finishingAnodizePerDm2: adj.finishingAnodizePerDm2 ?? baseRates.finishingAnodizePerDm2,
-      finishingAnodizeMin: adj.finishingAnodizeMin ?? baseRates.finishingAnodizeMin,
-      finishingSandblastAnodizeSetup: adj.finishingSandblastAnodizeSetup ?? baseRates.finishingSandblastAnodizeSetup,
       finishingSandblastAnodizePerDm2: adj.finishingSandblastAnodizePerDm2 ?? baseRates.finishingSandblastAnodizePerDm2,
-      finishingSandblastAnodizeMin: adj.finishingSandblastAnodizeMin ?? baseRates.finishingSandblastAnodizeMin,
-      finishingSandblastSetup: adj.finishingSandblastSetup ?? baseRates.finishingSandblastSetup,
       finishingSandblastPerDm2: adj.finishingSandblastPerDm2 ?? baseRates.finishingSandblastPerDm2,
-      finishingSandblastMin: adj.finishingSandblastMin ?? baseRates.finishingSandblastMin,
-      finishingGenericSetup: adj.finishingGenericSetup ?? baseRates.finishingGenericSetup,
       finishingGenericPerDm2: adj.finishingGenericPerDm2 ?? baseRates.finishingGenericPerDm2,
-      finishingGenericMin: adj.finishingGenericMin ?? baseRates.finishingGenericMin,
-      finishingAnodize: adj.finishingAnodizeMin ?? adj.finishingAnodize ?? baseRates.finishingAnodizeMin,
-      finishingSandblastAnodize: adj.finishingSandblastAnodizeMin ?? adj.finishingSandblastAnodize ?? baseRates.finishingSandblastAnodizeMin,
     },
     tier: 'small-batch',
     tierLabel: '单件小批量',
@@ -289,41 +257,33 @@ function resolveFinishingProfile(finishingText, rates) {
   if (/喷砂.*阳极|阳极.*喷砂/.test(text)) {
     return {
       label: '喷砂+阳极',
-      setup: rates.finishingSandblastAnodizeSetup ?? 18,
-      perDm2: rates.finishingSandblastAnodizePerDm2 ?? 26,
-      minFee: rates.finishingSandblastAnodizeMin ?? rates.finishingSandblastAnodize ?? 48,
+      perDm2: rates.finishingSandblastAnodizePerDm2 ?? 32,
     };
   }
   if (/阳极/.test(text)) {
     return {
       label: '阳极',
-      setup: rates.finishingAnodizeSetup ?? 16,
-      perDm2: rates.finishingAnodizePerDm2 ?? 22,
-      minFee: rates.finishingAnodizeMin ?? rates.finishingAnodize ?? 38,
+      perDm2: rates.finishingAnodizePerDm2 ?? 28,
     };
   }
   if (/喷砂/.test(text)) {
     return {
       label: '喷砂',
-      setup: rates.finishingSandblastSetup ?? 12,
-      perDm2: rates.finishingSandblastPerDm2 ?? 16,
-      minFee: rates.finishingSandblastMin ?? 28,
+      perDm2: rates.finishingSandblastPerDm2 ?? 18,
     };
   }
   if (/电镀|喷涂|氧化|抛光|拉丝|喷漆|烤漆|丝印|激光打标|UV打印|喷油/.test(text)) {
     return {
       label: '其它表面',
-      setup: rates.finishingGenericSetup ?? 14,
-      perDm2: rates.finishingGenericPerDm2 ?? 18,
-      minFee: rates.finishingGenericMin ?? 32,
+      perDm2: rates.finishingGenericPerDm2 ?? 22,
     };
   }
   return null;
 }
 
 /**
- * 表面处理费 = max(底价, (setup + 计费面积×单价) × 复杂度系数)
- * 计费面积 = max(实际表面积, 最低开单面积)
+ * 表面处理费 = 实际表面积(dm²) × 单价 × 复杂度系数
+ * 无底价、无最低开单面积；小件可低至数元。
  */
 export function estimateFinishingFee(finishing, rates, geometry = {}, feature = {}, complexity = {}) {
   const text = String(finishing || '').trim();
@@ -336,19 +296,16 @@ export function estimateFinishingFee(finishing, rates, geometry = {}, feature = 
     return { fee: 0, detail: null, areaDm2: 0, complexityMult: 1, label: null };
   }
 
-  const actualAreaDm2 = estimateSurfaceAreaDm2(geometry);
-  const minArea = rates.finishingMinBillableAreaDm2 ?? 0.55;
-  const billableAreaDm2 = roundMoney(Math.max(actualAreaDm2, minArea));
+  const areaDm2 = estimateSurfaceAreaDm2(geometry);
   const complexityMult = computeFinishingComplexityMultiplier(complexity, feature);
-  const variable = roundMoney((profile.setup + billableAreaDm2 * profile.perDm2) * complexityMult);
-  const fee = roundMoney(Math.max(profile.minFee, variable));
-  const detail = `${profile.label} ${billableAreaDm2}dm²×¥${profile.perDm2}+setup¥${profile.setup} 复杂度×${complexityMult}`;
+  const fee = roundMoney(Math.max(0, areaDm2 * profile.perDm2 * complexityMult));
+  const detail = `${profile.label} ${areaDm2}dm²×¥${profile.perDm2} 复杂度×${complexityMult}`;
 
   return {
     fee,
     detail,
-    areaDm2: billableAreaDm2,
-    actualAreaDm2,
+    areaDm2,
+    actualAreaDm2: areaDm2,
     complexityMult,
     label: profile.label,
   };
@@ -746,7 +703,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.5.1',
+    formulaVersion: '1.5.2',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : '4-order-cost-benchmark',
