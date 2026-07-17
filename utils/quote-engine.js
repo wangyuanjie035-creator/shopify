@@ -1,5 +1,5 @@
 /**
- * CNC 自动报价引擎 v1.6 — 特征驱动加工计价
+ * CNC 自动报价引擎 v1.6.2 — 壳体/塑料件近净料计价
  *
  * 加工/时长以 Palmetto 特征（孔/圆角/型腔/面数/去除量）为主，尺寸仅作辅助；
  * 大尺寸低特征简单件不应被包络尺寸单独抬高价格。
@@ -130,6 +130,15 @@ export const DEFAULT_QUOTE_RATES = {
   finishingSandblastAnodizePerDm2: 32,
   finishingSandblastPerDm2: 18,
   finishingGenericPerDm2: 22,
+  shellStockRemovalFactor: 0.42,
+  shellRemovalVolumeRatio: 4,
+  /** 壳体件切削：按近净去除量估算（非满包络粗加工） */
+  shellMachiningRemovalFactor: 0.48,
+  plasticFinishingFactor: 0.38,
+  plasticFinishingSandblastAnodizePerDm2: 11,
+  plasticFinishingAnodizePerDm2: 9,
+  plasticFinishingComplexityCap: 1.05,
+  shellFixtureFeeCny: 0,
 };
 
 /** qty=1 小批量：对标外协平台单件报价（保守工时 + 零售材料 + 装夹/开料最低消费） */
@@ -145,7 +154,7 @@ export const SMALL_BATCH_ADJUSTMENTS = {
   setupMachineHourlyCny: 110,
   setupMinutesStandard: 12,
   setupMinutesSimple: 8,
-  mrrScale: 0.10,
+  mrrScale: 0.55,
   featureTimeScaleMultiplier: 1.35,
   finishMinPerPartVolumeCm3: 0.06,
   fixtureFeeCny: 15,
@@ -162,6 +171,15 @@ export const SMALL_BATCH_ADJUSTMENTS = {
   simpleFixtureFeeCny: 0,
   simpleMrrScale: 0.35,
   simpleFeatureTimeMultiplier: 0.72,
+  /** 壳体/空心件：开料按近净料，不按满包络 */
+  shellStockRemovalFactor: 0.42,
+  shellRemovalVolumeRatio: 4,
+  shellMachiningRemovalFactor: 0.48,
+  plasticFinishingFactor: 0.38,
+  plasticFinishingSandblastAnodizePerDm2: 11,
+  plasticFinishingAnodizePerDm2: 9,
+  plasticFinishingComplexityCap: 1.05,
+  shellFixtureFeeCny: 0,
 };
 
 function roundMoney(value) {
@@ -214,6 +232,13 @@ export function resolveQuantityRates(baseRates, quantity, options = {}) {
       simpleFixtureFeeCny: adj.simpleFixtureFeeCny ?? 0,
       simpleMrrScale: adj.simpleMrrScale ?? 0.35,
       simpleFeatureTimeMultiplier: adj.simpleFeatureTimeMultiplier ?? 0.72,
+      shellStockRemovalFactor: adj.shellStockRemovalFactor ?? baseRates.shellStockRemovalFactor,
+      shellMachiningRemovalFactor: adj.shellMachiningRemovalFactor ?? baseRates.shellMachiningRemovalFactor,
+      plasticFinishingFactor: adj.plasticFinishingFactor ?? baseRates.plasticFinishingFactor,
+      plasticFinishingSandblastAnodizePerDm2: adj.plasticFinishingSandblastAnodizePerDm2 ?? baseRates.plasticFinishingSandblastAnodizePerDm2,
+      plasticFinishingAnodizePerDm2: adj.plasticFinishingAnodizePerDm2 ?? baseRates.plasticFinishingAnodizePerDm2,
+      plasticFinishingComplexityCap: adj.plasticFinishingComplexityCap ?? baseRates.plasticFinishingComplexityCap,
+      shellFixtureFeeCny: adj.shellFixtureFeeCny ?? baseRates.shellFixtureFeeCny,
     },
     tier: 'small-batch',
     tierLabel: '单件小批量',
@@ -290,23 +315,28 @@ export function computeFinishingComplexityMultiplier(complexity = {}, feature = 
   return roundMoney(Math.max(0.82, Math.min(mult, 1.75)));
 }
 
-function resolveFinishingProfile(finishingText, rates, complexity) {
+function resolveFinishingProfile(finishingText, rates, complexity, material = {}) {
   const text = String(finishingText || '').trim();
   const simple = complexity?.isSimple === true;
+  const isPlastic = material.category === '塑料';
   if (/喷砂.*阳极|阳极.*喷砂/.test(text)) {
     return {
       label: '喷砂+阳极',
-      perDm2: simple
-        ? (rates.simpleFinishingSandblastAnodizePerDm2 ?? 4.2)
-        : (rates.finishingSandblastAnodizePerDm2 ?? 32),
+      perDm2: isPlastic
+        ? (rates.plasticFinishingSandblastAnodizePerDm2 ?? 11)
+        : simple
+          ? (rates.simpleFinishingSandblastAnodizePerDm2 ?? 4.2)
+          : (rates.finishingSandblastAnodizePerDm2 ?? 32),
     };
   }
   if (/阳极/.test(text)) {
     return {
       label: '阳极',
-      perDm2: simple
-        ? (rates.simpleFinishingAnodizePerDm2 ?? 3.5)
-        : (rates.finishingAnodizePerDm2 ?? 28),
+      perDm2: isPlastic
+        ? (rates.plasticFinishingAnodizePerDm2 ?? 9)
+        : simple
+          ? (rates.simpleFinishingAnodizePerDm2 ?? 3.5)
+          : (rates.finishingAnodizePerDm2 ?? 28),
     };
   }
   if (/喷砂/.test(text)) {
@@ -332,20 +362,29 @@ function resolveFinishingProfile(finishingText, rates, complexity) {
  * 表面处理费 = 实际表面积(dm²) × 单价 × 复杂度系数
  * 无底价、无最低开单面积；小件可低至数元。
  */
-export function estimateFinishingFee(finishing, rates, geometry = {}, feature = {}, complexity = {}) {
+export function estimateFinishingFee(finishing, rates, geometry = {}, feature = {}, complexity = {}, material = {}) {
   const text = String(finishing || '').trim();
   if (isNoSurfaceTreatment(text)) {
     return { fee: 0, detail: null, areaDm2: 0, complexityMult: 1, label: null };
   }
 
-  const profile = resolveFinishingProfile(text, rates, complexity);
+  const profile = resolveFinishingProfile(text, rates, complexity, material);
   if (!profile) {
     return { fee: 0, detail: null, areaDm2: 0, complexityMult: 1, label: null };
   }
 
   const areaDm2 = estimateSurfaceAreaDm2(geometry);
-  const complexityMult = computeFinishingComplexityMultiplier(complexity, feature);
-  const fee = roundMoney(Math.max(0, areaDm2 * profile.perDm2 * complexityMult));
+  let complexityMult = computeFinishingComplexityMultiplier(complexity, feature);
+  const isPlasticProfile = material.category === '塑料'
+    && (profile.perDm2 === (rates.plasticFinishingSandblastAnodizePerDm2 ?? 11)
+      || profile.perDm2 === (rates.plasticFinishingAnodizePerDm2 ?? 9));
+  if (isPlasticProfile) {
+    complexityMult = Math.min(complexityMult, rates.plasticFinishingComplexityCap ?? 1.05);
+  }
+  let fee = roundMoney(Math.max(0, areaDm2 * profile.perDm2 * complexityMult));
+  if (material.category === '塑料' && !rates.plasticFinishingSandblastAnodizePerDm2) {
+    fee = roundMoney(fee * (rates.plasticFinishingFactor ?? 0.38));
+  }
   const detail = `${profile.label} ${areaDm2}dm²×¥${profile.perDm2} 复杂度×${complexityMult}`;
 
   return {
@@ -454,6 +493,35 @@ export function isLowRemovalMachining(geometry, rates = DEFAULT_QUOTE_RATES) {
     && removalRatio <= (rates.lowRemovalMaxRatio ?? 0.10);
 }
 
+export function isShellLikePart(geometry, rates = DEFAULT_QUOTE_RATES) {
+  const volumeCm3 = geometry.volumeCm3 ?? 0;
+  const removalCm3 = geometry.removalCm3 ?? 0;
+  const ratioThreshold = rates.shellRemovalVolumeRatio ?? 4;
+  return volumeCm3 > 0 && removalCm3 / volumeCm3 > ratioThreshold;
+}
+
+export function computeEffectiveBlankCm3(geometry, rates = DEFAULT_QUOTE_RATES) {
+  const bboxCm3 = geometry.bboxCm3 ?? geometry.volumeCm3;
+  if (bboxCm3 == null) return null;
+  const volumeCm3 = geometry.volumeCm3 ?? 0;
+  const removalCm3 = geometry.removalCm3 ?? 0;
+  if (isShellLikePart(geometry, rates)) {
+    const shellFactor = rates.shellStockRemovalFactor ?? 0.42;
+    return roundMoney(Math.min(bboxCm3, volumeCm3 + removalCm3 * shellFactor));
+  }
+  return roundMoney(bboxCm3);
+}
+
+export function computeEffectiveRemovalCm3(geometry, rates = DEFAULT_QUOTE_RATES) {
+  const removalCm3 = geometry.removalCm3 ?? 0;
+  if (removalCm3 <= 0) return 0;
+  if (isShellLikePart(geometry, rates)) {
+    const factor = rates.shellMachiningRemovalFactor ?? rates.shellStockRemovalFactor ?? 0.42;
+    return roundMoney(removalCm3 * factor);
+  }
+  return roundMoney(removalCm3);
+}
+
 export function applySimplePartRateAdjustments(rates, complexity, tier) {
   if (!complexity?.isSimple) return rates;
   const next = {
@@ -466,6 +534,15 @@ export function applySimplePartRateAdjustments(rates, complexity, tier) {
     next.featureTimeScale = (rates.featureTimeScale ?? 1) * (rates.simpleFeatureTimeMultiplier ?? 0.72);
   }
   return next;
+}
+
+export function applyShellPartRateAdjustments(rates, geometry, tier) {
+  if (!isShellLikePart(geometry, rates)) return rates;
+  if (tier !== 'small-batch') return rates;
+  return {
+    ...rates,
+    fixtureFeeCny: rates.shellFixtureFeeCny ?? 0,
+  };
 }
 
 export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_RATES) {
@@ -622,11 +699,13 @@ function computeMachiningMinutes(geometry, feature, material, rates, complexity)
   let finishPathMinutes = 0;
 
   const mrr = resolveMaterialMrr(material, rates);
-  if (geometry.removalCm3 != null && geometry.removalCm3 > 0) {
-    minutes += geometry.removalCm3 / mrr;
+  const effectiveRemoval = computeEffectiveRemovalCm3(geometry, rates);
+  if (effectiveRemoval > 0) {
+    minutes += effectiveRemoval / mrr;
   }
 
-  const finishIntensity = resolveFinishIntensity(complexity, rates);
+  const finishIntensity = resolveFinishIntensity(complexity, rates)
+    * (isShellLikePart(geometry, rates) ? 0.45 : 1);
   if (geometry.volumeCm3 != null) {
     finishPathMinutes = geometry.volumeCm3 * (rates.finishMinPerPartVolumeCm3 ?? 0.015) * finishIntensity;
     minutes += finishPathMinutes;
@@ -669,7 +748,8 @@ function computeMachiningMinutes(geometry, feature, material, rates, complexity)
   };
 }
 
-function computeLargeRemovalSurcharge(geometry, rates) {
+function computeLargeRemovalSurcharge(geometry, rates, material = {}) {
+  if (isShellLikePart(geometry, rates) || material.category === '塑料') return 0;
   const threshold = rates.largeRemovalThresholdCm3 ?? 35;
   const removal = geometry.removalCm3 ?? 0;
   if (removal <= threshold) return 0;
@@ -678,7 +758,7 @@ function computeLargeRemovalSurcharge(geometry, rates) {
 }
 
 function computeBlankMaterialCost(geometry, material, rates) {
-  const blankCm3 = geometry.bboxCm3 ?? geometry.volumeCm3;
+  const blankCm3 = computeEffectiveBlankCm3(geometry, rates) ?? geometry.bboxCm3 ?? geometry.volumeCm3;
   if (blankCm3 == null) return { materialCost: 0, blankMassG: null, blankCm3: null };
 
   const scrapFactor = rates.materialScrapFactor ?? 1.10;
@@ -733,7 +813,11 @@ export function estimateQuote(input = {}) {
   const feature = resolveFeatureInput(input);
   const finishingText = input.finishing ?? input.surfaceTreatment;
   const complexity = classifyPartComplexity(geometry, feature, quantityRates);
-  const rates = applySimplePartRateAdjustments(quantityRates, complexity, tier);
+  const rates = applyShellPartRateAdjustments(
+    applySimplePartRateAdjustments(quantityRates, complexity, tier),
+    geometry,
+    tier,
+  );
   const hourly = rates.machineHourlyCny;
 
   const { materialCost, blankMassG, blankCm3, pricePerKg } = computeBlankMaterialCost(geometry, material, rates);
@@ -749,10 +833,10 @@ export function estimateQuote(input = {}) {
   const featureCost = minutesToCost(featureMinutes, hourly * material.machiningFactor);
 
   const machining = computeMachiningMinutes(geometry, feature, material, rates, complexity);
-  const removalSurcharge = computeLargeRemovalSurcharge(geometry, rates);
+  const removalSurcharge = computeLargeRemovalSurcharge(geometry, rates, material);
   const durationCost = roundMoney(minutesToCost(machining.minutes, hourly) + removalSurcharge);
 
-  const finishingResult = estimateFinishingFee(finishingText, rates, geometry, feature, complexity);
+  const finishingResult = estimateFinishingFee(finishingText, rates, geometry, feature, complexity, material);
   const finishingFee = roundMoney(finishingResult.fee);
   const fixtureFee = roundMoney(rates.fixtureFeeCny ?? 0);
   const processCost = roundMoney(materialCost + setupCost + featureCost + finishingFee + fixtureFee);
@@ -881,7 +965,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.6.1',
+    formulaVersion: '1.6.2',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : 'feature-driven-market',
