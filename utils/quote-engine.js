@@ -1,5 +1,5 @@
 /**
- * CNC 自动报价引擎 v1.6.3 — 对标行业报价表 + 批量折扣
+ * CNC 自动报价引擎 v1.6.4 — 小件低去除标准件校准
  *
  * 加工/时长以 Palmetto 特征（孔/圆角/型腔/面数/去除量）为主，尺寸仅作辅助；
  * 大尺寸低特征简单件不应被包络尺寸单独抬高价格。
@@ -104,6 +104,13 @@ export const DEFAULT_QUOTE_RATES = {
   /** 低去除量板件（侧孔/薄板）：去除≤25cm³ 且 去除比≤10% */
   lowRemovalMaxCm3: 25,
   lowRemovalMaxRatio: 0.10,
+  /** 小零件(包络≤100cm³)去除比放宽至25% */
+  lowRemovalSmallBboxCm3: 100,
+  lowRemovalSmallBboxMaxRatio: 0.25,
+  lowRemovalBlankRemovalFactor: 1.05,
+  lowRemovalCavityEach: 2.5,
+  lowRemovalSetupMinutesStandard: 8,
+  complexScoreThreshold: 0.72,
   simplePartMaxHolesLowRemoval: 15,
   simplePartMaxCoreUnitsLowRemoval: 10,
   /** 简单件表面单价 ¥/dm²（竞品小件约 3–6 元/dm²） */
@@ -175,6 +182,15 @@ export const SMALL_BATCH_ADJUSTMENTS = {
   simpleFixtureFeeCny: 0,
   simpleMrrScale: 0.35,
   simpleFeatureTimeMultiplier: 0.72,
+  /** 低去除标准件：近净开料、平台级表面、免装夹 */
+  lowRemovalMaterialMinBillingG: 0,
+  lowRemovalFixtureFeeCny: 0,
+  lowRemovalFinishingSandblastAnodizePerDm2: 48,
+  lowRemovalFinishingAnodizePerDm2: 40,
+  lowRemovalFinishingComplexityCap: 1.05,
+  lowRemovalFeatureTimeMultiplier: 0.88,
+  lowRemovalCavityEach: 2.5,
+  lowRemovalSetupMinutesStandard: 8,
   /** 壳体/空心件：开料按近净料，不按满包络 */
   shellStockRemovalFactor: 0.42,
   shellRemovalVolumeRatio: 4,
@@ -236,6 +252,22 @@ export function resolveQuantityRates(baseRates, quantity, options = {}) {
       simpleFixtureFeeCny: adj.simpleFixtureFeeCny ?? 0,
       simpleMrrScale: adj.simpleMrrScale ?? 0.35,
       simpleFeatureTimeMultiplier: adj.simpleFeatureTimeMultiplier ?? 0.72,
+      lowRemovalMaterialMinBillingG: adj.lowRemovalMaterialMinBillingG ?? 0,
+      lowRemovalFixtureFeeCny: adj.lowRemovalFixtureFeeCny ?? 0,
+      lowRemovalFinishingSandblastAnodizePerDm2: adj.lowRemovalFinishingSandblastAnodizePerDm2
+        ?? baseRates.lowRemovalFinishingSandblastAnodizePerDm2,
+      lowRemovalFinishingAnodizePerDm2: adj.lowRemovalFinishingAnodizePerDm2
+        ?? baseRates.lowRemovalFinishingAnodizePerDm2,
+      lowRemovalFinishingComplexityCap: adj.lowRemovalFinishingComplexityCap
+        ?? baseRates.lowRemovalFinishingComplexityCap,
+      lowRemovalFeatureTimeMultiplier: adj.lowRemovalFeatureTimeMultiplier ?? 0.88,
+      lowRemovalCavityEach: adj.lowRemovalCavityEach ?? baseRates.lowRemovalCavityEach,
+      lowRemovalSetupMinutesStandard: adj.lowRemovalSetupMinutesStandard
+        ?? baseRates.lowRemovalSetupMinutesStandard,
+      lowRemovalSmallBboxCm3: baseRates.lowRemovalSmallBboxCm3,
+      lowRemovalSmallBboxMaxRatio: baseRates.lowRemovalSmallBboxMaxRatio,
+      lowRemovalBlankRemovalFactor: baseRates.lowRemovalBlankRemovalFactor,
+      complexScoreThreshold: baseRates.complexScoreThreshold,
       shellStockRemovalFactor: adj.shellStockRemovalFactor ?? baseRates.shellStockRemovalFactor,
       shellMachiningRemovalFactor: adj.shellMachiningRemovalFactor ?? baseRates.shellMachiningRemovalFactor,
       plasticFinishingFactor: adj.plasticFinishingFactor ?? baseRates.plasticFinishingFactor,
@@ -384,6 +416,8 @@ export function estimateFinishingFee(finishing, rates, geometry = {}, feature = 
       || profile.perDm2 === (rates.plasticFinishingAnodizePerDm2 ?? 9));
   if (isPlasticProfile) {
     complexityMult = Math.min(complexityMult, rates.plasticFinishingComplexityCap ?? 1.05);
+  } else if (rates.finishingComplexityCap != null) {
+    complexityMult = Math.min(complexityMult, rates.finishingComplexityCap);
   }
   let fee = roundMoney(Math.max(0, areaDm2 * profile.perDm2 * complexityMult));
   if (material.category === '塑料' && !rates.plasticFinishingSandblastAnodizePerDm2) {
@@ -493,8 +527,12 @@ export function isLowRemovalMachining(geometry, rates = DEFAULT_QUOTE_RATES) {
   const removalCm3 = geometry.removalCm3 ?? 0;
   const bboxCm3 = geometry.bboxCm3 ?? geometry.volumeCm3 ?? 0;
   const removalRatio = bboxCm3 > 0 ? removalCm3 / bboxCm3 : 0;
-  return removalCm3 <= (rates.lowRemovalMaxCm3 ?? 25)
-    && removalRatio <= (rates.lowRemovalMaxRatio ?? 0.10);
+  const maxRemoval = rates.lowRemovalMaxCm3 ?? 25;
+  if (removalCm3 > maxRemoval) return false;
+  if (removalRatio <= (rates.lowRemovalMaxRatio ?? 0.10)) return true;
+  const smallBbox = rates.lowRemovalSmallBboxCm3 ?? 100;
+  const smallRatio = rates.lowRemovalSmallBboxMaxRatio ?? 0.25;
+  return bboxCm3 > 0 && bboxCm3 <= smallBbox && removalRatio <= smallRatio;
 }
 
 export function isShellLikePart(geometry, rates = DEFAULT_QUOTE_RATES) {
@@ -509,6 +547,10 @@ export function computeEffectiveBlankCm3(geometry, rates = DEFAULT_QUOTE_RATES) 
   if (bboxCm3 == null) return null;
   const volumeCm3 = geometry.volumeCm3 ?? 0;
   const removalCm3 = geometry.removalCm3 ?? 0;
+  if (rates.lowRemovalNearNetBlank) {
+    const factor = rates.lowRemovalBlankRemovalFactor ?? 1.05;
+    return roundMoney(Math.min(bboxCm3, volumeCm3 + removalCm3 * factor));
+  }
   if (isShellLikePart(geometry, rates)) {
     const shellFactor = rates.shellStockRemovalFactor ?? 0.42;
     return roundMoney(Math.min(bboxCm3, volumeCm3 + removalCm3 * shellFactor));
@@ -538,6 +580,24 @@ export function applySimplePartRateAdjustments(rates, complexity, tier) {
     next.featureTimeScale = (rates.featureTimeScale ?? 1) * (rates.simpleFeatureTimeMultiplier ?? 0.72);
   }
   return next;
+}
+
+export function applyLowRemovalPlateAdjustments(rates, complexity, tier) {
+  if (tier !== 'small-batch' || !complexity?.lowRemovalPlate || complexity.isSimple) return rates;
+  const featMult = rates.lowRemovalFeatureTimeMultiplier ?? 0.88;
+  return {
+    ...rates,
+    lowRemovalNearNetBlank: true,
+    materialMinBillingG: rates.lowRemovalMaterialMinBillingG ?? 0,
+    fixtureFeeCny: rates.lowRemovalFixtureFeeCny ?? 0,
+    finishingSandblastAnodizePerDm2: rates.lowRemovalFinishingSandblastAnodizePerDm2
+      ?? rates.finishingSandblastAnodizePerDm2,
+    finishingAnodizePerDm2: rates.lowRemovalFinishingAnodizePerDm2 ?? rates.finishingAnodizePerDm2,
+    finishingComplexityCap: rates.lowRemovalFinishingComplexityCap ?? 1.05,
+    featureTimeScale: (rates.featureTimeScale ?? 1) * featMult,
+    cavityEach: rates.lowRemovalCavityEach ?? rates.cavityEach,
+    setupMinutesStandard: rates.lowRemovalSetupMinutesStandard ?? rates.setupMinutesStandard,
+  };
 }
 
 export function applyShellPartRateAdjustments(rates, geometry, tier) {
@@ -608,7 +668,7 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
   } else if (lowRemovalPlate) {
     if ((feature.holeCount || 0) > 22 || faceCount > 70) level = 'complex';
   } else if (
-    score >= 0.62
+    score >= (rates.complexScoreThreshold ?? 0.72)
     || removalCm3 > 40
     || (feature.holeCount || 0) > 12
     || faceCount > 90
@@ -818,7 +878,11 @@ export function estimateQuote(input = {}) {
   const finishingText = input.finishing ?? input.surfaceTreatment;
   const complexity = classifyPartComplexity(geometry, feature, quantityRates);
   const rates = applyShellPartRateAdjustments(
-    applySimplePartRateAdjustments(quantityRates, complexity, tier),
+    applyLowRemovalPlateAdjustments(
+      applySimplePartRateAdjustments(quantityRates, complexity, tier),
+      complexity,
+      tier,
+    ),
     geometry,
     tier,
   );
@@ -987,7 +1051,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.6.3',
+    formulaVersion: '1.6.4',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : 'feature-driven-market',
