@@ -1,5 +1,5 @@
 /**
- * CNC 自动报价引擎 v1.6.5 — 薄板多孔/小面积表面分级
+ * CNC 自动报价引擎 v1.6.6 — 零件分型回归 + 壳体填充比判定
  *
  * 加工/时长以 Palmetto 特征（孔/圆角/型腔/面数/去除量）为主，尺寸仅作辅助；
  * 大尺寸低特征简单件不应被包络尺寸单独抬高价格。
@@ -150,6 +150,8 @@ export const DEFAULT_QUOTE_RATES = {
   finishingGenericPerDm2: 22,
   shellStockRemovalFactor: 0.42,
   shellRemovalVolumeRatio: 4,
+  /** 壳体填充比上限：体积/包络 ≤ 此值才算空心壳体（排除大块开料） */
+  shellMaxFillRatio: 0.12,
   /** 壳体件切削：按近净去除量估算（非满包络粗加工） */
   shellMachiningRemovalFactor: 0.48,
   plasticFinishingFactor: 0.38,
@@ -564,8 +566,12 @@ export function isLowRemovalMachining(geometry, rates = DEFAULT_QUOTE_RATES) {
 export function isShellLikePart(geometry, rates = DEFAULT_QUOTE_RATES) {
   const volumeCm3 = geometry.volumeCm3 ?? 0;
   const removalCm3 = geometry.removalCm3 ?? 0;
+  const bboxCm3 = geometry.bboxCm3 ?? 0;
   const ratioThreshold = rates.shellRemovalVolumeRatio ?? 4;
-  return volumeCm3 > 0 && removalCm3 / volumeCm3 > ratioThreshold;
+  if (!(volumeCm3 > 0 && removalCm3 / volumeCm3 > ratioThreshold)) return false;
+  // 大块铝料开粗：去除比虽高，但填充比不低 → 不是壳体
+  const fillRatio = bboxCm3 > 0 ? volumeCm3 / bboxCm3 : 1;
+  return fillRatio <= (rates.shellMaxFillRatio ?? 0.12);
 }
 
 export function computeEffectiveBlankCm3(geometry, rates = DEFAULT_QUOTE_RATES) {
@@ -735,6 +741,50 @@ export function classifyPartComplexity(geometry, feature, rates = DEFAULT_QUOTE_
     featureUnits,
     faceCount,
   };
+}
+
+/**
+ * 零件分型（回归与费率档位共用）
+ * @returns {{ typology: string, label: string, reasons: string[] }}
+ */
+export function classifyPartTypology(geometry, feature, complexity, material = {}, rates = DEFAULT_QUOTE_RATES) {
+  const reasons = [];
+  const removalCm3 = geometry.removalCm3 ?? 0;
+  const isPlastic = material.category === '塑料';
+  const shell = isShellLikePart(geometry, rates);
+
+  if (shell && isPlastic) {
+    reasons.push('shell+plastic');
+    return { typology: 'plastic-shell', label: '壳体塑料件', reasons };
+  }
+  if (shell) {
+    reasons.push('removal/volume>shellThreshold');
+    return { typology: 'shell', label: '壳体/空心件', reasons };
+  }
+  if (complexity?.isSimple) {
+    reasons.push('simple-plate');
+    return { typology: 'simple-plate', label: '简单薄板', reasons };
+  }
+  if (complexity?.lowRemovalPlate) {
+    const holes = feature.holeCount ?? 0;
+    const areaDm2 = estimateSurfaceAreaDm2(geometry);
+    if (holes > (rates.lowRemovalManyHolesThreshold ?? 12)) {
+      reasons.push('low-removal+many-holes');
+      return { typology: 'low-removal-multi-hole', label: '低去除多孔板', reasons };
+    }
+    if (areaDm2 > 0 && areaDm2 < (rates.lowRemovalSmallAreaFinishingDm2 ?? 1.5)) {
+      reasons.push('low-removal+small-area');
+      return { typology: 'low-removal-small-area', label: '低去除小面积件', reasons };
+    }
+    reasons.push('low-removal-standard');
+    return { typology: 'low-removal-standard', label: '低去除标准件', reasons };
+  }
+  if (removalCm3 > 40 || complexity?.level === 'complex') {
+    reasons.push(removalCm3 > 40 ? 'large-removal' : 'complex-score');
+    return { typology: 'large-removal-complex', label: '大去除/复杂件', reasons };
+  }
+  reasons.push('standard-fallback');
+  return { typology: 'standard', label: '标准件', reasons };
 }
 
 /** 加工时长综合系数：简单件打折，复杂件（多孔/多曲面）加价 */
@@ -925,6 +975,7 @@ export function estimateQuote(input = {}) {
   const feature = resolveFeatureInput(input);
   const finishingText = input.finishing ?? input.surfaceTreatment;
   const complexity = classifyPartComplexity(geometry, feature, quantityRates);
+  const typologyInfo = classifyPartTypology(geometry, feature, complexity, material, quantityRates);
   const rates = applyShellPartRateAdjustments(
     applyLowRemovalPlateAdjustments(
       applySimplePartRateAdjustments(quantityRates, complexity, tier),
@@ -1083,6 +1134,8 @@ export function estimateQuote(input = {}) {
       complexityScore: complexity.score,
       featureUnits: complexity.featureUnits,
       faceCount: complexity.faceCount,
+      partTypology: typologyInfo.typology,
+      partTypologyLabel: typologyInfo.label,
       finishing: finishingFee,
       laborSubtotal,
       quantityDiscount,
@@ -1101,7 +1154,7 @@ export function estimateQuote(input = {}) {
     confidence,
     requiresManualReview: !autoQuoteEligible,
     reviewReasons: [...new Set(reviewReasons)],
-    formulaVersion: '1.6.5',
+    formulaVersion: '1.6.6',
     calibrationSource: tier === 'small-batch'
       ? 'small-batch-market'
       : 'feature-driven-market',
@@ -1127,6 +1180,7 @@ export function buildQuoteShopifyAttributes(quote) {
     { key: '估价模式', value: modeLabel },
     { key: '数量档位', value: quote.pricingTierLabel || '标准批量' },
     { key: '零件复杂度', value: `${b.partComplexity || 'standard'}(评分${b.complexityScore ?? '-'} 特征${b.featureUnits ?? '-'} 面${b.faceCount ?? '-'})` },
+    { key: '零件分型', value: b.partTypologyLabel || b.partTypology || '-' },
     { key: '加工复杂度系数', value: String(b.machiningComplexityFactor ?? 1) },
     { key: '估价置信度', value: quote.confidence === 'high' ? '高' : quote.confidence === 'medium' ? '中(简单件)' : '需复核' },
     { key: '估价数量', value: String(quote.quantity) },

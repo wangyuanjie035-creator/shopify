@@ -1,4 +1,4 @@
-# 自动报价规则 v1.6.4 — 小件低去除标准件校准
+# 自动报价规则 v1.6.6 — 零件分型回归
 
 ```
 总价 = 加工工艺费 + 加工时长费 − 批量折扣 + 运费 + 税费
@@ -8,7 +8,8 @@
 
 行业 Excel 对标详见：[quote-benchmark-xls.md](./quote-benchmark-xls.md)  
 WorkBuddy 参数化公式对标：[quote-benchmark-workbuddy.md](./quote-benchmark-workbuddy.md)  
-校验命令：`node scripts/compare-xls-benchmark.mjs` · `node scripts/compare-workbuddy-benchmark.mjs`
+零件分型回归：[quote-regression-typology.md](./quote-regression-typology.md)  
+校验命令：`node scripts/compare-xls-benchmark.mjs` · `node scripts/compare-workbuddy-benchmark.mjs` · `node scripts/regress-part-typology.mjs`
 
 ## 零件复杂度档位
 

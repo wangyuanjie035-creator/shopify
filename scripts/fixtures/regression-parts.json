@@ -1,0 +1,141 @@
+{
+  "description": "历史对标件回归集：平台零售价 + 四单成本价。compareField=manufacturing 对比工艺小计，unitPrice 对比含税单价。",
+  "parts": [
+    {
+      "id": "side_holes",
+      "name": "001-侧孔位版",
+      "typologyExpected": "simple-plate",
+      "source": "platform",
+      "targetPrice": 56.48,
+      "compareField": "unitPrice",
+      "material": "6061铝",
+      "finishing": "喷砂+阳极",
+      "quantity": 1,
+      "pricingTier": "small-batch",
+      "stepPath": ".tmp_side_holes.step"
+    },
+    {
+      "id": "solder_upper",
+      "name": "烙铁支架上层",
+      "typologyExpected": "low-removal-multi-hole",
+      "source": "platform",
+      "targetPrice": 77.01,
+      "compareField": "manufacturingSubtotal",
+      "note": "平台明细合计：材料14.85+工程13.33+加工43.27+表面5.56",
+      "material": "6061铝",
+      "finishing": "喷砂+阳极",
+      "quantity": 1,
+      "pricingTier": "small-batch",
+      "stepPath": ".tmp_solder_upper.step"
+    },
+    {
+      "id": "solder_lower",
+      "name": "烙铁支架下层",
+      "typologyExpected": "low-removal-standard",
+      "source": "platform",
+      "targetPrice": 161.47,
+      "compareField": "manufacturingSubtotal",
+      "note": "平台明细合计：17.5+13.33+52.07+78.57",
+      "material": "6061铝",
+      "finishing": "喷砂+阳极",
+      "quantity": 1,
+      "pricingTier": "small-batch",
+      "stepPath": ".tmp_solder_stand.step"
+    },
+    {
+      "id": "flashlight",
+      "name": "手电筒ABS壳体",
+      "typologyExpected": "plastic-shell",
+      "source": "platform",
+      "targetPrice": 308.14,
+      "compareField": "manufacturingSubtotal",
+      "note": "平台明细合计≈308",
+      "material": "工程塑料-ABS（白色）",
+      "finishing": "喷砂+阳极",
+      "quantity": 1,
+      "pricingTier": "small-batch",
+      "stepPath": ".tmp_flashlight.step"
+    },
+    {
+      "id": "plate_80x80x7",
+      "name": "80×80×7铝板",
+      "typologyExpected": "simple-plate",
+      "source": "platform",
+      "targetPrice": 205,
+      "compareField": "unitPrice",
+      "skip": true,
+      "skipReason": "无真实 STEP，合成几何会落入简单薄板低表面价，不能代表历史对标",
+      "material": "6061铝",
+      "finishing": "喷砂+阳极",
+      "quantity": 1,
+      "pricingTier": "small-batch",
+      "synthetic": {
+        "workpiece": {
+          "volumeMm3": 44800,
+          "bboxVolumeMm3": 44800,
+          "surfaceAreaMm2": 14080
+        },
+        "features": {
+          "status": "ok",
+          "summary": { "holeCount": 4, "filletCount": 0, "cavityCount": 0 },
+          "insights": {
+            "topology": { "faceCount": 10 },
+            "holes": { "dedupedCount": 4, "sizeBreakdown": "标准孔×4" }
+          }
+        }
+      }
+    },
+    {
+      "id": "bracket",
+      "name": "Bracket",
+      "typologyExpected": "large-removal-complex",
+      "source": "cost-order",
+      "targetPrice": 124.95,
+      "compareField": "unitPrice",
+      "material": "6061铝",
+      "finishing": "喷砂+阳极",
+      "quantity": 1,
+      "pricingTier": "standard",
+      "batchName": "Bracket"
+    },
+    {
+      "id": "doorstop",
+      "name": "DoorStop",
+      "typologyExpected": "large-removal-complex",
+      "source": "cost-order",
+      "targetPrice": 808.43,
+      "compareField": "unitPrice",
+      "material": "6061铝",
+      "finishing": "无",
+      "quantity": 1,
+      "pricingTier": "standard",
+      "batchName": "DoorStop"
+    },
+    {
+      "id": "metal_cup",
+      "name": "metal cup",
+      "typologyExpected": "large-removal-complex",
+      "source": "cost-order",
+      "targetPrice": 376.18,
+      "compareField": "unitPrice",
+      "material": "H59黄铜",
+      "finishing": "无",
+      "quantity": 1,
+      "pricingTier": "standard",
+      "batchName": "metal cup"
+    },
+    {
+      "id": "carriage",
+      "name": "Carriage",
+      "typologyExpected": "large-removal-complex",
+      "source": "cost-order",
+      "targetPrice": 296.03,
+      "compareField": "unitPrice",
+      "material": "6061铝",
+      "finishing": "无",
+      "quantity": 1,
+      "pricingTier": "standard",
+      "batchName": "Carriage"
+    }
+  ]
+}
